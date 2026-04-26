@@ -9,13 +9,15 @@ import {
   ShoppingBag, Car, UtensilsCrossed, HeartPulse, MoreHorizontal,
   Calendar, Target, Receipt, Pencil, Trash2, X, Check,
   DollarSign, Briefcase, BarChart2, PiggyBank, ArrowUpCircle, ArrowDownCircle,
-  Lightbulb, AlertTriangle, Flag, Flame, Search, RefreshCw, ChevronDown,
-  User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard, MoreVertical, Undo2
+  Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
+  User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
+  MoreVertical, Undo2, Download, SlidersHorizontal
 } from 'lucide-react'
 
 type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'other'
 type IncomeCategory = 'salary' | 'freelance' | 'business' | 'investment' | 'other'
 type Frequency = 'daily' | 'weekly' | 'monthly'
+type SortOrder = 'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'
 
 interface Expense {
   id: string; user_id: string; title: string; amount: number
@@ -58,7 +60,8 @@ const INCOME_CONFIG: Record<IncomeCategory, { label: string; icon: React.ReactNo
   other:      { label: 'Other',      icon: <PiggyBank size={14} />  },
 }
 const FREQ_LABELS: Record<Frequency, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 function fmt(amount: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
@@ -74,9 +77,14 @@ function currentMonth() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
-function getMonthLabel(iso: string) {
+// FIX 5: Full month label e.g. "April 2026"
+function getMonthLabelFull(iso: string) {
   const [year, month] = iso.split('-')
-  return `${MONTHS[parseInt(month) - 1]} '${year.slice(2)}`
+  return `${MONTHS[parseInt(month) - 1]} ${year}`
+}
+function getMonthLabelShort(iso: string) {
+  const [year, month] = iso.split('-')
+  return `${MONTHS_SHORT[parseInt(month) - 1]} '${year.slice(2)}`
 }
 function nextDueDate(current: string, frequency: Frequency): string {
   const d = new Date(current)
@@ -86,7 +94,28 @@ function nextDueDate(current: string, frequency: Frequency): string {
   return d.toISOString().slice(0, 10)
 }
 
-// ─── Three-dot context menu — portal-based so it always renders above everything ──
+function exportCSV(expenses: Expense[], income: Income[], month: string) {
+  const rows: string[] = [
+    'Type,Date,Description,Category,Amount,Note',
+    ...expenses.filter(e => e.created_at.startsWith(month)).map(e => [
+      'Expense', new Date(e.created_at).toLocaleDateString('en-US'),
+      `"${e.title.replace(/"/g, '""')}"`, CATEGORY_CONFIG[e.category].label, e.amount,
+      `"${(e.note || '').replace(/"/g, '""')}"`
+    ].join(',')),
+    ...income.filter(i => i.created_at.startsWith(month)).map(i => [
+      'Income', new Date(i.created_at).toLocaleDateString('en-US'),
+      `"${i.title.replace(/"/g, '""')}"`, INCOME_CONFIG[i.category].label, i.amount,
+      `"${(i.note || '').replace(/"/g, '""')}"`
+    ].join(','))
+  ]
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = `expenses-${month}.csv`; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── Three-dot context menu (portal) ─────────────────────────────────────────
 function RowMenu({ items }: {
   items: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean }[]
 }) {
@@ -94,19 +123,16 @@ function RowMenu({ items }: {
   const [pos, setPos]   = useState<{ top: number; left: number } | null>(null)
   const btnRef          = useRef<HTMLButtonElement>(null)
 
-  // Recalculate position whenever we open
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!open && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect()
-      // dropdown is ~144px wide; flip left if it would overflow viewport
       const left = rect.right - 144 < 0 ? rect.left : rect.right - 144
       setPos({ top: rect.bottom + 4, left })
     }
     setOpen(v => !v)
   }
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -116,7 +142,6 @@ function RowMenu({ items }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Close on scroll (position would be stale)
   useEffect(() => {
     if (!open) return
     const handler = () => setOpen(false)
@@ -125,22 +150,14 @@ function RowMenu({ items }: {
   }, [open])
 
   const dropdown = open && pos ? ReactDOM.createPortal(
-    <div
-      style={{ position: 'fixed', top: pos.top, left: pos.left, width: 144, zIndex: 9999 }}
+    <div style={{ position: 'fixed', top: pos.top, left: pos.left, width: 144, zIndex: 9999 }}
       className="bg-white border border-gray-100 rounded-xl shadow-xl py-1 animate-slide-up"
-      onMouseDown={e => e.stopPropagation()}
-    >
+      onMouseDown={e => e.stopPropagation()}>
       {items.map((item, i) => (
-        <button
-          key={i}
-          disabled={item.disabled}
+        <button key={i} disabled={item.disabled}
           onClick={e => { e.stopPropagation(); item.onClick(); setOpen(false) }}
-          className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-xs transition-colors disabled:opacity-40 ${
-            item.danger ? 'text-red-500 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          {item.icon}
-          {item.label}
+          className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-xs transition-colors disabled:opacity-40 ${item.danger ? 'text-red-500 hover:bg-red-50' : 'text-gray-700 hover:bg-gray-50'}`}>
+          {item.icon}{item.label}
         </button>
       ))}
     </div>,
@@ -149,11 +166,8 @@ function RowMenu({ items }: {
 
   return (
     <div className="relative shrink-0">
-      <button
-        ref={btnRef}
-        onClick={handleOpen}
-        className={`p-1.5 rounded-lg transition-all ${open ? 'bg-gray-100 text-black' : 'text-gray-400 hover:text-black hover:bg-gray-100'}`}
-      >
+      <button ref={btnRef} onClick={handleOpen}
+        className={`p-1.5 rounded-lg transition-all ${open ? 'bg-gray-100 text-black' : 'text-gray-400 hover:text-black hover:bg-gray-100'}`}>
         <MoreVertical size={15} />
       </button>
       {dropdown}
@@ -189,8 +203,7 @@ function CollapsibleSection({ title, icon, children, defaultOpen = true, headerR
 
 // ─── Edit Income Modal ────────────────────────────────────────────────────────
 function EditIncomeModal({ income, onClose, onSave }: {
-  income: Income; onClose: () => void
-  onSave: (updated: Partial<Income>) => Promise<void>
+  income: Income; onClose: () => void; onSave: (updated: Partial<Income>) => Promise<void>
 }) {
   const [title, setTitle]       = useState(income.title)
   const [amount, setAmount]     = useState(String(income.amount))
@@ -200,9 +213,7 @@ function EditIncomeModal({ income, onClose, onSave }: {
 
   const handleSave = async () => {
     if (!title.trim() || !amount) return
-    setSaving(true)
-    await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim() })
-    setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim() }); setSaving(false)
   }
 
   return (
@@ -217,8 +228,7 @@ function EditIncomeModal({ income, onClose, onSave }: {
             <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
-              <input type="text" inputMode="numeric" value={amount}
-                onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                 className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
             </div>
             {amount && !isNaN(parseFloat(amount)) && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
@@ -255,8 +265,7 @@ function EditIncomeModal({ income, onClose, onSave }: {
 
 // ─── Edit Bill Modal ──────────────────────────────────────────────────────────
 function EditBillModal({ item, onClose, onSave }: {
-  item: RecurringExpense; onClose: () => void
-  onSave: (updated: Partial<RecurringExpense>) => Promise<void>
+  item: RecurringExpense; onClose: () => void; onSave: (updated: Partial<RecurringExpense>) => Promise<void>
 }) {
   const [title, setTitle]         = useState(item.title)
   const [amount, setAmount]       = useState(String(item.amount))
@@ -268,9 +277,7 @@ function EditBillModal({ item, onClose, onSave }: {
 
   const handleSave = async () => {
     if (!title.trim() || !amount) return
-    setSaving(true)
-    await onSave({ title: title.trim(), amount: parseFloat(amount), category, frequency, next_due, note: note.trim() })
-    setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, frequency, next_due, note: note.trim() }); setSaving(false)
   }
 
   return (
@@ -300,8 +307,7 @@ function EditBillModal({ item, onClose, onSave }: {
             <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
-              <input type="text" inputMode="numeric" value={amount}
-                onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                 className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
             </div>
             {amount && !isNaN(parseFloat(amount)) && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
@@ -370,31 +376,19 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
 
   const handleAddFunds = async () => {
     if (!addAmount || parseFloat(addAmount) <= 0) return
-    setSaving(true)
-    await onAddFunds(parseFloat(addAmount), addNote.trim())
-    setAddAmount(''); setAddNote('')
-    setSaving(false)
+    setSaving(true); await onAddFunds(parseFloat(addAmount), addNote.trim()); setAddAmount(''); setAddNote(''); setSaving(false)
   }
-  const handleDeleteHistory = async (id: string) => {
-    setDeletingId(id); await onDeleteHistory(id); setDeletingId(null)
-  }
-  const startEditHistory = (h: GoalHistory) => {
-    setEditingHistory(h); setEditHAmount(String(h.amount)); setEditHNote(h.note ?? '')
-  }
+  const handleDeleteHistory = async (id: string) => { setDeletingId(id); await onDeleteHistory(id); setDeletingId(null) }
+  const startEditHistory = (h: GoalHistory) => { setEditingHistory(h); setEditHAmount(String(h.amount)); setEditHNote(h.note ?? '') }
   const handleSaveEditHistory = async () => {
     if (!editingHistory) return
-    await onEditHistory(editingHistory.id, parseFloat(editHAmount), editHNote.trim())
-    setEditingHistory(null)
+    await onEditHistory(editingHistory.id, parseFloat(editHAmount), editHNote.trim()); setEditingHistory(null)
   }
   const handleEditGoal = async () => {
     if (!editTitle.trim() || !editTarget) return
-    setEditSaving(true)
-    await onEditGoal({ title: editTitle.trim(), target_amount: parseFloat(editTarget), deadline: editDeadline || undefined })
-    setEditSaving(false)
+    setEditSaving(true); await onEditGoal({ title: editTitle.trim(), target_amount: parseFloat(editTarget), deadline: editDeadline || undefined }); setEditSaving(false)
   }
-  const handleDeleteGoal = async () => {
-    setDeleting(true); await onDeleteGoal(); setDeleting(false)
-  }
+  const handleDeleteGoal = async () => { setDeleting(true); await onDeleteGoal(); setDeleting(false) }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
@@ -402,7 +396,7 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
         <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
           <div className="flex-1 min-w-0 mr-3">
             <p className="text-base font-medium text-black truncate">{goal.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{fmtShort(goal.current_amount)} / {fmtShort(goal.target_amount)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmtShort(goal.current_amount)} saved of {fmtShort(goal.target_amount)}</p>
           </div>
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
         </div>
@@ -419,7 +413,7 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
         <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg">
           {(['overview', 'history', 'edit'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-1 rounded-md text-xs font-medium transition-all capitalize ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+              className={`flex-1 py-1 rounded-md text-xs font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
               {t === 'overview' ? 'Add funds' : t === 'history' ? `History (${history.length})` : 'Edit'}
             </button>
           ))}
@@ -427,24 +421,15 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
         <div className="flex-1 overflow-y-auto px-5 pb-5 pt-3">
           {tab === 'overview' && (
             <div className="space-y-3">
-              {done && (
-                <div className="bg-green-50 rounded-xl p-3 text-center">
-                  <p className="text-sm text-green-700 font-medium">🎉 Goal reached!</p>
-                  <p className="text-xs text-green-600 mt-0.5">You saved {fmtShort(goal.target_amount)}</p>
-                </div>
-              )}
+              {done && <div className="bg-green-50 rounded-xl p-3 text-center"><p className="text-sm text-green-700 font-medium">🎉 Goal reached!</p><p className="text-xs text-green-600 mt-0.5">You saved {fmtShort(goal.target_amount)}</p></div>}
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Amount to add (Rp)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
-                  <input type="text" inputMode="numeric" value={addAmount}
-                    onChange={e => setAddAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                    placeholder="0" autoFocus
+                  <input type="text" inputMode="numeric" value={addAmount} onChange={e => setAddAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" autoFocus
                     className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
                 </div>
-                {addAmount && !isNaN(parseFloat(addAmount)) && parseFloat(addAmount) > 0 && (
-                  <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(addAmount))}</p>
-                )}
+                {addAmount && !isNaN(parseFloat(addAmount)) && parseFloat(addAmount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(addAmount))}</p>}
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
@@ -453,10 +438,7 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
               </div>
               {!done && remaining > 0 && addAmount && parseFloat(addAmount) > 0 && (
                 <div className="bg-gray-50 rounded-lg px-3 py-2">
-                  <p className="text-xs text-gray-500">
-                    After adding: <span className="font-medium text-black">{fmtShort(goal.current_amount + parseFloat(addAmount))}</span>
-                    {' '}({Math.min(((goal.current_amount + parseFloat(addAmount)) / goal.target_amount) * 100, 100).toFixed(0)}%)
-                  </p>
+                  <p className="text-xs text-gray-500">After adding: <span className="font-medium text-black">{fmtShort(goal.current_amount + parseFloat(addAmount))}</span>{' '}({Math.min(((goal.current_amount + parseFloat(addAmount)) / goal.target_amount) * 100, 100).toFixed(0)}%)</p>
                 </div>
               )}
               <button onClick={handleAddFunds} disabled={saving || !addAmount || parseFloat(addAmount) <= 0}
@@ -466,84 +448,69 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
             </div>
           )}
           {tab === 'history' && (
-            <div>
-              {history.length === 0 ? (
-                <div className="text-center py-8">
-                  <History size={24} className="mx-auto mb-2 text-gray-200" />
-                  <p className="text-xs text-gray-300">No savings history yet</p>
+            history.length === 0 ? (
+              <div className="text-center py-8"><History size={24} className="mx-auto mb-2 text-gray-200" /><p className="text-xs text-gray-300">No savings history yet</p></div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5 mb-1 flex justify-between items-center">
+                  <span className="text-xs text-gray-500">{history.length} transaction{history.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs font-medium text-black">{fmtShort(history.reduce((s, h) => s + h.amount, 0))} total</span>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="bg-gray-50 rounded-xl px-3 py-2.5 mb-1 flex justify-between items-center">
-                    <span className="text-xs text-gray-500">{history.length} transaction{history.length !== 1 ? 's' : ''}</span>
-                    <span className="text-xs font-medium text-black">{fmtShort(history.reduce((s, h) => s + h.amount, 0))} total</span>
+                {history.map(h => (
+                  <div key={h.id}>
+                    {editingHistory?.id === h.id ? (
+                      <div className="border border-black rounded-xl p-3 space-y-2">
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
+                          <input type="text" inputMode="numeric" value={editHAmount} onChange={e => setEditHAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                            className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+                        </div>
+                        <input value={editHNote} onChange={e => setEditHNote(e.target.value)} placeholder="Note..."
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-black transition" />
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingHistory(null)} className="flex-1 border border-gray-200 rounded-lg py-1.5 text-xs text-gray-600 hover:bg-gray-50">Cancel</button>
+                          <button onClick={handleSaveEditHistory} className="flex-1 bg-black text-white rounded-lg py-1.5 text-xs font-medium hover:bg-gray-800 flex items-center justify-center gap-1"><Check size={12} /> Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group hover:bg-gray-50 transition-all">
+                        <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center shrink-0"><PiggyBank size={13} className="text-green-700" /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-green-700">+{fmtShort(h.amount)}</p>
+                          {h.note && <p className="text-xs text-gray-400 truncate">{h.note}</p>}
+                          <p className="text-xs text-gray-300">{new Date(h.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+                          <button onClick={() => startEditHistory(h)} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-black transition-all"><Pencil size={12} /></button>
+                          <button onClick={() => handleDeleteHistory(h.id)} disabled={deletingId === h.id} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all disabled:opacity-50">
+                            {deletingId === h.id ? <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={12} />}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {history.map(h => (
-                    <div key={h.id}>
-                      {editingHistory?.id === h.id ? (
-                        <div className="border border-black rounded-xl p-3 space-y-2">
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
-                            <input type="text" inputMode="numeric" value={editHAmount}
-                              onChange={e => setEditHAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                              className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
-                          </div>
-                          <input value={editHNote} onChange={e => setEditHNote(e.target.value)} placeholder="Note..."
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-black focus:outline-none focus:border-black transition" />
-                          <div className="flex gap-2">
-                            <button onClick={() => setEditingHistory(null)} className="flex-1 border border-gray-200 rounded-lg py-1.5 text-xs text-gray-600 hover:bg-gray-50">Cancel</button>
-                            <button onClick={handleSaveEditHistory}
-                              className="flex-1 bg-black text-white rounded-lg py-1.5 text-xs font-medium hover:bg-gray-800 flex items-center justify-center gap-1">
-                              <Check size={12} /> Save
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group hover:bg-gray-50 transition-all">
-                          <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
-                            <PiggyBank size={13} className="text-green-700" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-green-700">+{fmtShort(h.amount)}</p>
-                            {h.note && <p className="text-xs text-gray-400 truncate">{h.note}</p>}
-                            <p className="text-xs text-gray-300">{new Date(h.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                          </div>
-                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
-                            <button onClick={() => startEditHistory(h)} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-black transition-all"><Pencil size={12} /></button>
-                            <button onClick={() => handleDeleteHistory(h.id)} disabled={deletingId === h.id}
-                              className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all disabled:opacity-50">
-                              {deletingId === h.id ? <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={12} />}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )
           )}
           {tab === 'edit' && (
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Goal name</label>
-                <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+                <input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Target amount (Rp)</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
-                  <input type="text" inputMode="numeric" value={editTarget}
-                    onChange={e => setEditTarget(e.target.value.replace(/[^0-9.]/g, ''))}
+                  <input type="text" inputMode="numeric" value={editTarget} onChange={e => setEditTarget(e.target.value.replace(/[^0-9.]/g, ''))}
                     className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
                 </div>
                 {editTarget && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(editTarget) || 0)}</p>}
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Target date <span className="text-gray-300">(optional)</span></label>
-                <input type="date" value={editDeadline} onChange={e => setEditDeadline(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+                <input type="date" value={editDeadline} onChange={e => setEditDeadline(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
               </div>
               <button onClick={handleEditGoal} disabled={editSaving}
                 className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
@@ -578,9 +545,7 @@ function AddBillModal({ onClose, onSave }: {
 
   const handleSave = async () => {
     if (!title.trim() || !amount || parseFloat(amount) <= 0) return
-    setSaving(true)
-    await onSave({ title: title.trim(), amount: parseFloat(amount), category, frequency, next_due, note: note.trim() })
-    setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, frequency, next_due, note: note.trim() }); setSaving(false)
   }
 
   return (
@@ -652,8 +617,7 @@ function AddBillModal({ onClose, onSave }: {
 
 // ─── Add Expense Modal ────────────────────────────────────────────────────────
 function AddExpenseModal({ onClose, onSave }: {
-  onClose: () => void
-  onSave: (data: { title: string; amount: number; category: Category; note: string }) => Promise<void>
+  onClose: () => void; onSave: (data: { title: string; amount: number; category: Category; note: string }) => Promise<void>
 }) {
   const [title, setTitle]       = useState('')
   const [amount, setAmount]     = useState('')
@@ -793,8 +757,7 @@ function EditExpenseModal({ expense, onClose, onSave }: {
 
 // ─── Add Income Modal ─────────────────────────────────────────────────────────
 function AddIncomeModal({ onClose, onSave }: {
-  onClose: () => void
-  onSave: (income: { title: string; amount: number; category: IncomeCategory; note: string }) => Promise<void>
+  onClose: () => void; onSave: (income: { title: string; amount: number; category: IncomeCategory; note: string }) => Promise<void>
 }) {
   const [title, setTitle]       = useState('')
   const [amount, setAmount]     = useState('')
@@ -856,8 +819,7 @@ function AddIncomeModal({ onClose, onSave }: {
 
 // ─── Add Savings Goal Modal ───────────────────────────────────────────────────
 function AddGoalModal({ onClose, onSave }: {
-  onClose: () => void
-  onSave: (data: { title: string; target_amount: number; current_amount: number; deadline: string }) => Promise<void>
+  onClose: () => void; onSave: (data: { title: string; target_amount: number; current_amount: number; deadline: string }) => Promise<void>
 }) {
   const [title, setTitle]       = useState('')
   const [target, setTarget]     = useState('')
@@ -867,9 +829,7 @@ function AddGoalModal({ onClose, onSave }: {
 
   const handleSave = async () => {
     if (!title.trim() || !target || parseFloat(target) <= 0) return
-    setSaving(true)
-    await onSave({ title: title.trim(), target_amount: parseFloat(target), current_amount: parseFloat(current) || 0, deadline })
-    setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), target_amount: parseFloat(target), current_amount: parseFloat(current) || 0, deadline }); setSaving(false)
   }
 
   return (
@@ -950,7 +910,6 @@ function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay, categ
   netSavings: number; budgets: Budget[]; budgetSpend: Partial<Record<Category, number>>
 }) {
   const insights: { icon: React.ReactNode; text: string; color: string; bg: string }[] = []
-
   if (lastMonthTotal > 0 && thisMonthTotal > 0) {
     const pct = ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
     if (pct > 10) insights.push({ icon: <TrendingUp size={13} />, text: `Spending is up ${pct.toFixed(0)}% vs last month`, color: 'text-red-700', bg: 'bg-red-50' })
@@ -965,7 +924,7 @@ function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay, categ
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
   const projected = avgPerDay * daysInMonth
   if (lastMonthTotal > 0 && projected > lastMonthTotal * 1.15)
-    insights.push({ icon: <TrendingUp size={13} />, text: `On pace for ${fmtShort(projected)} this month — ${fmtShort(projected - lastMonthTotal)} more than last month`, color: 'text-orange-700', bg: 'bg-orange-50' })
+    insights.push({ icon: <TrendingUp size={13} />, text: `On pace for ${fmtShort(projected)} — ${fmtShort(projected - lastMonthTotal)} more than last month`, color: 'text-orange-700', bg: 'bg-orange-50' })
   if (thisMonthIncomeTot > 0) {
     const savingsRate = (netSavings / thisMonthIncomeTot) * 100
     if (savingsRate >= 20) insights.push({ icon: <PiggyBank size={13} />, text: `Saving ${savingsRate.toFixed(0)}% of income this month — solid!`, color: 'text-green-700', bg: 'bg-green-50' })
@@ -976,7 +935,6 @@ function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay, categ
     if (pct >= 80 && pct < 100) insights.push({ icon: <AlertTriangle size={13} />, text: `${CATEGORY_CONFIG[b.category].label} budget is ${pct.toFixed(0)}% used`, color: 'text-amber-700', bg: 'bg-amber-50' })
     else if (pct >= 100) insights.push({ icon: <AlertTriangle size={13} />, text: `${CATEGORY_CONFIG[b.category].label} budget exceeded by ${fmtShort(spent - b.limit_amount)}`, color: 'text-red-700', bg: 'bg-red-50' })
   })
-
   if (insights.length === 0) return <p className="text-xs text-gray-300 py-2 text-center">No insights yet — keep tracking!</p>
   return (
     <div className="flex flex-col gap-2">
@@ -1005,6 +963,12 @@ export default function Dashboard() {
   const [loading, setLoading]                 = useState(true)
   const [searchQuery, setSearchQuery]         = useState('')
   const [showSearch, setShowSearch]           = useState(false)
+  const [showFilters, setShowFilters]         = useState(false)
+  const [sortOrder, setSortOrder]             = useState<SortOrder>('date-desc')
+  const [minAmount, setMinAmount]             = useState('')
+  const [maxAmount, setMaxAmount]             = useState('')
+  // FIX 2: chart view toggle with cleaner labels
+  const [chartView, setChartView]             = useState<'monthly' | 'weekly'>('monthly')
   const [showAddExpense, setShowAddExpense]   = useState(false)
   const [editingExpense, setEditingExpense]   = useState<Expense | null>(null)
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null)
@@ -1158,7 +1122,6 @@ export default function Dashboard() {
     if (!error) setRecurring(prev => prev.filter(r => r.id !== id))
     setDeletingBillId(null)
   }
-
   const handlePayBill = async (r: RecurringExpense) => {
     if (paidBills[r.id]) return
     setPayingBillId(r.id)
@@ -1169,13 +1132,9 @@ export default function Dashboard() {
       supabase.from('expenses').insert({ title: r.title, amount: r.amount, category: r.category, note: `${FREQ_LABELS[r.frequency]} bill`, user_id: user.id }).select().single()
     ])
     if (!e1) setRecurring(prev => prev.map(rec => rec.id === r.id ? { ...rec, next_due: newDue } : rec).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime()))
-    if (!e2 && newExp) {
-      setExpenses(prev => [newExp, ...prev])
-      setPaidBills(prev => ({ ...prev, [r.id]: newExp.id }))
-    }
+    if (!e2 && newExp) { setExpenses(prev => [newExp, ...prev]); setPaidBills(prev => ({ ...prev, [r.id]: newExp.id })) }
     setPayingBillId(null)
   }
-
   const handleUndoPayBill = async (r: RecurringExpense) => {
     const expId = paidBills[r.id]; if (!expId) return
     const d = new Date(r.next_due)
@@ -1183,10 +1142,7 @@ export default function Dashboard() {
     if (r.frequency === 'weekly')  d.setDate(d.getDate() - 7)
     if (r.frequency === 'monthly') d.setMonth(d.getMonth() - 1)
     const originalDue = d.toISOString().slice(0, 10)
-    await Promise.all([
-      supabase.from('recurring_expenses').update({ next_due: originalDue }).eq('id', r.id),
-      supabase.from('expenses').delete().eq('id', expId)
-    ])
+    await Promise.all([supabase.from('recurring_expenses').update({ next_due: originalDue }).eq('id', r.id), supabase.from('expenses').delete().eq('id', expId)])
     setRecurring(prev => prev.map(rec => rec.id === r.id ? { ...rec, next_due: originalDue } : rec).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime()))
     setExpenses(prev => prev.filter(e => e.id !== expId))
     setPaidBills(prev => { const n = { ...prev }; delete n[r.id]; return n })
@@ -1206,6 +1162,10 @@ export default function Dashboard() {
   const netSavings         = thisMonthIncomeTot - thisMonthTotal
   const avgPerDay          = useMemo(() => thisMonthTotal / new Date().getDate(), [thisMonthTotal])
   const monthOverMonthPct  = lastMonthTotal === 0 ? 0 : ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
+
+  // FIX 5: spending rate — how much of income has been spent
+  const spendingRate = thisMonthIncomeTot > 0 ? Math.min((thisMonthTotal / thisMonthIncomeTot) * 100, 999) : 0
+
   const last6Months = useMemo(() => {
     const result = []; const now = new Date(); const yr = now.getFullYear(); const mo = now.getMonth()
     for (let i = 5; i >= 0; i--) {
@@ -1213,11 +1173,31 @@ export default function Dashboard() {
       if (m < 0) { m += 12; y -= 1 }
       const key = `${y}-${String(m + 1).padStart(2, '0')}`
       const total = expenses.filter(e => e.created_at.startsWith(key)).reduce((s, e) => s + e.amount, 0)
-      result.push({ key, label: MONTHS[m], total })
+      result.push({ key, label: MONTHS_SHORT[m], total })
     }
     return result
   }, [expenses])
-  const maxMonthly     = Math.max(...last6Months.map(m => m.total), 1)
+
+  const weeklyData = useMemo(() => {
+    const weeks: { label: string; total: number }[] = []
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const weekCount = Math.ceil(daysInMonth / 7)
+    for (let w = 0; w < weekCount; w++) {
+      const startDay = w * 7 + 1
+      const endDay   = Math.min(startDay + 6, daysInMonth)
+      const total = thisMonthExpenses.filter(e => {
+        const d = new Date(e.created_at).getDate()
+        return d >= startDay && d <= endDay
+      }).reduce((s, e) => s + e.amount, 0)
+      weeks.push({ label: `W${w + 1}`, total })
+    }
+    return weeks
+  }, [thisMonthExpenses, selectedMonth])
+
+  const maxMonthly = Math.max(...last6Months.map(m => m.total), 1)
+  const maxWeekly  = Math.max(...weeklyData.map(w => w.total), 1)
+
   const categoryTotals = useMemo(() => {
     const totals: Partial<Record<Category, number>> = {}
     thisMonthExpenses.forEach(e => { totals[e.category] = (totals[e.category] || 0) + e.amount })
@@ -1228,16 +1208,30 @@ export default function Dashboard() {
     thisMonthExpenses.forEach(e => { map[e.category] = (map[e.category] || 0) + e.amount })
     return map
   }, [thisMonthExpenses])
+
   const filteredExpenses = useMemo(() => {
     let list = activeFilter === 'all' ? thisMonthExpenses : thisMonthExpenses.filter(e => e.category === activeFilter)
-    if (searchQuery.trim()) { const q = searchQuery.toLowerCase(); list = list.filter(e => e.title.toLowerCase().includes(q) || e.note?.toLowerCase().includes(q)) }
-    return list
-  }, [thisMonthExpenses, activeFilter, searchQuery])
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(e => e.title.toLowerCase().includes(q) || e.note?.toLowerCase().includes(q))
+    }
+    if (minAmount) list = list.filter(e => e.amount >= parseFloat(minAmount))
+    if (maxAmount) list = list.filter(e => e.amount <= parseFloat(maxAmount))
+    switch (sortOrder) {
+      case 'date-asc':    return [...list].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      case 'amount-desc': return [...list].sort((a, b) => b.amount - a.amount)
+      case 'amount-asc':  return [...list].sort((a, b) => a.amount - b.amount)
+      default:            return list
+    }
+  }, [thisMonthExpenses, activeFilter, searchQuery, minAmount, maxAmount, sortOrder])
+
   const filteredIncome = useMemo(() => {
     if (!searchQuery.trim()) return thisMonthIncome
     const q = searchQuery.toLowerCase()
     return thisMonthIncome.filter(i => i.title.toLowerCase().includes(q) || i.note?.toLowerCase().includes(q))
   }, [thisMonthIncome, searchQuery])
+
+  const activeFilterCount = [minAmount, maxAmount, sortOrder !== 'date-desc'].filter(Boolean).length
   const billsDueSoon = useMemo(() => recurring.filter(r => Math.ceil((new Date(r.next_due).getTime() - Date.now()) / 86_400_000) <= 7).length, [recurring])
 
   const monthIndex = last6Months.findIndex(m => m.key === selectedMonth)
@@ -1269,8 +1263,9 @@ export default function Dashboard() {
       <div className="min-h-screen bg-white">
         <div className="max-w-2xl mx-auto px-4 sm:px-5 py-5 sm:py-7">
 
-          {/* Header */}
-          <div className="flex justify-between items-center mb-6">
+          {/* ── Header ── */}
+          {/* FIX 1: Export removed from header — now lives only in the hamburger/dropdown */}
+          <div className="flex justify-between items-center mb-5">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shrink-0"><Wallet size={15} color="white" /></div>
               <div>
@@ -1278,6 +1273,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 mt-0.5 hidden sm:block">{userEmail}</p>
               </div>
             </div>
+            {/* Desktop: only core actions */}
             <div className="hidden sm:flex items-center gap-2">
               <button onClick={() => setShowSearch(v => !v)}
                 className={`p-1.5 border rounded-lg transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50'}`}>
@@ -1296,6 +1292,7 @@ export default function Dashboard() {
                 <LogOut size={15} />
               </button>
             </div>
+            {/* Mobile: search + hamburger */}
             <div className="flex sm:hidden items-center gap-1.5" ref={menuRef}>
               <button onClick={() => setShowSearch(v => !v)}
                 className={`p-1.5 rounded-lg border transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600'}`}>
@@ -1308,6 +1305,7 @@ export default function Dashboard() {
                 </button>
                 {menuOpen && (
                   <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                    <button onClick={() => { exportCSV(expenses, income, selectedMonth); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
                     <button onClick={() => { setShowAddIncome(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowUpCircle size={14} className="text-green-600" /> Add Income</button>
                     <button onClick={() => { setShowAddExpense(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowDownCircle size={14} /> Add Expense</button>
                     <button onClick={() => { setShowAddBill(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
@@ -1329,32 +1327,69 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Month nav */}
-          <div className="flex items-center gap-1 mb-3">
-            <button onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)} disabled={!canGoPrev}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
-              <ChevronLeft size={13} />
-            </button>
-            <div className="flex items-center gap-1.5 px-1">
-              <Calendar size={11} className="text-gray-400" />
-              <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
-                className="bg-transparent text-sm font-medium text-black outline-none cursor-pointer">
-                {last6Months.map(m => <option key={m.key} value={m.key}>{getMonthLabel(m.key)}</option>)}
-              </select>
+          {/* ── FIX 5: Remaining Balance + Month nav — merged into one clean bar ── */}
+          <div className="flex items-center justify-between mb-4 bg-gray-50 rounded-xl px-4 py-3">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Remaining balance</p>
+              <p className={`text-lg font-semibold leading-none ${netSavings >= 0 ? 'text-black' : 'text-red-600'}`}>
+                {fmtShort(Math.abs(netSavings))}
+                {netSavings < 0 && <span className="text-xs font-normal text-red-500 ml-1">deficit</span>}
+              </p>
             </div>
-            <button onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)} disabled={!canGoNext}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
-              <ChevronRight size={13} />
-            </button>
+            {/* Month nav inline on the right */}
+            <div className="flex items-center gap-1">
+              <button onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)} disabled={!canGoPrev}
+                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-white transition-all disabled:opacity-25">
+                <ChevronLeft size={13} />
+              </button>
+              <div className="flex items-center gap-1 px-1">
+                <Calendar size={11} className="text-gray-400" />
+                <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+                  className="bg-transparent text-sm font-medium text-black outline-none cursor-pointer">
+                  {last6Months.map(m => <option key={m.key} value={m.key}>{getMonthLabelFull(m.key)}</option>)}
+                </select>
+              </div>
+              <button onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)} disabled={!canGoNext}
+                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-white transition-all disabled:opacity-25">
+                <ChevronRight size={13} />
+              </button>
+            </div>
           </div>
 
-          {/* Stat Cards */}
+          {/* ── FIX 5: Stat Cards — Balance replaced with Spending Rate ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
             {[
-              { label: 'Income',    value: fmtShort(thisMonthIncomeTot), sub: `${thisMonthIncome.length} entries`,       color: 'text-green-700', icon: <ArrowUpCircle size={11} /> },
-              { label: 'Expenses',  value: fmtShort(thisMonthTotal),     sub: lastMonthTotal > 0 ? `${monthOverMonthPct > 0 ? '↑' : '↓'} ${Math.abs(monthOverMonthPct).toFixed(0)}% vs last month` : 'No prior data', color: monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700', icon: <ArrowDownCircle size={11} /> },
-              { label: 'Balance',   value: fmtShort(netSavings),         sub: netSavings >= 0 ? 'Surplus' : 'Deficit',   color: netSavings >= 0 ? 'text-green-700' : 'text-red-600', icon: netSavings >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} /> },
-              { label: 'Avg / day', value: fmtShort(avgPerDay),          sub: 'This month',                              color: 'text-gray-400',  icon: null },
+              {
+                label: 'Income',
+                value: fmtShort(thisMonthIncomeTot),
+                sub: `${thisMonthIncome.length} entr${thisMonthIncome.length === 1 ? 'y' : 'ies'}`,
+                color: 'text-green-700',
+                icon: <ArrowUpCircle size={11} />
+              },
+              {
+                label: 'Expenses',
+                value: fmtShort(thisMonthTotal),
+                sub: lastMonthTotal > 0 ? `${monthOverMonthPct > 0 ? '↑' : '↓'} ${Math.abs(monthOverMonthPct).toFixed(0)}% vs last month` : 'No prior data',
+                color: monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700',
+                icon: <ArrowDownCircle size={11} />
+              },
+              {
+                // FIX 5: Balance replaced with Spending Rate
+                label: 'Spending rate',
+                value: thisMonthIncomeTot > 0 ? `${spendingRate.toFixed(0)}%` : '—',
+                sub: thisMonthIncomeTot > 0
+                  ? spendingRate >= 100 ? 'Over budget!' : spendingRate >= 80 ? 'Getting close' : 'Of income used'
+                  : 'Add income first',
+                color: spendingRate >= 100 ? 'text-red-600' : spendingRate >= 80 ? 'text-amber-600' : 'text-green-700',
+                icon: spendingRate >= 100 ? <AlertTriangle size={11} /> : <TrendingUp size={11} />
+              },
+              {
+                label: 'Avg / day',
+                value: fmtShort(avgPerDay),
+                sub: 'This month',
+                color: 'text-gray-400',
+                icon: null
+              },
             ].map((s, i) => (
               <div key={i} className="stat-card bg-gray-50 rounded-xl p-3 sm:p-3.5">
                 <p className="text-xs text-gray-400 mb-1">{s.label}</p>
@@ -1364,23 +1399,60 @@ export default function Dashboard() {
             ))}
           </div>
 
-          {/* Charts */}
+          {/* ── Charts ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div className="border border-gray-100 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Monthly expenses</p>
-              <div className="flex flex-col gap-2">
-                {last6Months.map(m => (
-                  <div key={m.key} className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400 w-6 shrink-0">{m.label}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-700 ${m.key === selectedMonth ? 'bg-black' : 'bg-gray-400'}`}
-                        style={{ width: m.total ? `${(m.total / maxMonthly) * 100}%` : '0%' }} />
-                    </div>
-                    <span className="text-xs text-gray-400 w-14 text-right shrink-0">{m.total ? fmtShort(m.total) : '—'}</span>
-                  </div>
-                ))}
+              {/* FIX 2: Chart toggle — clean text labels "Monthly" / "Weekly" */}
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                  {chartView === 'monthly' ? 'Last 6 months' : `Weekly breakdown`}
+                </p>
+                <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                  <button
+                    onClick={() => setChartView('monthly')}
+                    className={`px-2.5 py-1 text-xs font-medium transition-all ${chartView === 'monthly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>
+                    Monthly
+                  </button>
+                  <button
+                    onClick={() => setChartView('weekly')}
+                    className={`px-2.5 py-1 text-xs font-medium transition-all border-l border-gray-200 ${chartView === 'weekly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>
+                    Weekly
+                  </button>
+                </div>
               </div>
+
+              {chartView === 'monthly' ? (
+                <div className="flex flex-col gap-2">
+                  {last6Months.map(m => (
+                    <div key={m.key} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-6 shrink-0">{m.label}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-700 ${m.key === selectedMonth ? 'bg-black' : 'bg-gray-400'}`}
+                          style={{ width: m.total ? `${(m.total / maxMonthly) * 100}%` : '0%' }} />
+                      </div>
+                      <span className="text-xs text-gray-400 w-14 text-right shrink-0">{m.total ? fmtShort(m.total) : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {weeklyData.map((w, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-6 shrink-0">{w.label}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full rounded-full bg-black transition-all duration-700"
+                          style={{ width: w.total ? `${(w.total / maxWeekly) * 100}%` : '0%' }} />
+                      </div>
+                      <span className="text-xs text-gray-400 w-14 text-right shrink-0">{w.total ? fmtShort(w.total) : '—'}</span>
+                    </div>
+                  ))}
+                  {weeklyData.every(w => w.total === 0) && (
+                    <p className="text-xs text-gray-300 text-center mt-4">No expenses this month</p>
+                  )}
+                </div>
+              )}
             </div>
+
             <div className="border border-gray-100 rounded-xl p-4">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">By category</p>
               {thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-6">No data this month</p> : (
@@ -1447,7 +1519,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Savings Goals */}
+          {/* ── FIX 3 + 6: Savings Goals — redesigned clear UI, red badge ── */}
           <CollapsibleSection
             title="Savings goals" icon={<Flag size={13} />} defaultOpen={false}
             badge={savingsGoals.length} badgeColor="bg-red-500"
@@ -1459,40 +1531,66 @@ export default function Dashboard() {
             }
           >
             {savingsGoals.length === 0 ? (
-              <div className="text-center py-4">
-                <p className="text-xs text-gray-300">No goals yet</p>
-                <button onClick={() => setShowAddGoal(true)} className="text-xs text-gray-400 hover:text-black transition-colors mt-1 underline underline-offset-2">Create your first goal</button>
+              <div className="text-center py-6">
+                <PiggyBank size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-xs text-gray-400 font-medium mb-0.5">No savings goals yet</p>
+                <p className="text-xs text-gray-300 mb-3">Set a target and track your progress</p>
+                <button onClick={() => setShowAddGoal(true)}
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  <Plus size={12} /> Create first goal
+                </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
                 {savingsGoals.map(goal => {
-                  const pct       = Math.min((goal.current_amount / goal.target_amount) * 100, 100)
-                  const done      = goal.current_amount >= goal.target_amount
+                  const pct      = Math.min((goal.current_amount / goal.target_amount) * 100, 100)
+                  const done     = goal.current_amount >= goal.target_amount
                   const remaining = goal.target_amount - goal.current_amount
                   let daysLeft: number | null = null
                   if (goal.deadline) daysLeft = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / 86_400_000)
-                  const histCount = (goalHistories[goal.id] || []).length
+
+                  // Colour of the progress fill
+                  const fillColor = done ? 'bg-green-500' : pct >= 75 ? 'bg-black' : 'bg-gray-300'
+
                   return (
-                    <div key={goal.id} className="border border-gray-100 rounded-xl p-3 hover:bg-gray-50 transition-all cursor-pointer" onClick={() => setOpenGoal(goal)}>
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1 min-w-0 mr-2">
-                          <div className="flex items-center gap-1.5">
-                            {done && <span className="text-green-500 text-xs">✓</span>}
-                            <p className="text-sm font-medium text-gray-900 truncate">{goal.title}</p>
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {fmtShort(goal.current_amount)} / {fmtShort(goal.target_amount)}
-                            {daysLeft !== null && <span className={`ml-2 ${daysLeft < 7 ? 'text-red-500' : 'text-gray-400'}`}>· {daysLeft > 0 ? `${daysLeft}d left` : 'Overdue'}</span>}
-                            {histCount > 0 && <span className="ml-2 text-gray-300">· {histCount} transaction{histCount !== 1 ? 's' : ''}</span>}
-                          </p>
+                    <div key={goal.id} onClick={() => setOpenGoal(goal)}
+                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+
+                      {/* Top row: title + pct badge */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {/* Visual indicator dot */}
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${done ? 'bg-green-500' : pct >= 75 ? 'bg-black' : 'bg-gray-300'}`} />
+                          <p className="text-sm font-medium text-gray-900 truncate">{goal.title}</p>
+                          {done && <span className="text-xs text-green-500 shrink-0">✓ Done</span>}
                         </div>
-                        <span className="text-xs text-gray-400 shrink-0">{pct.toFixed(0)}%</span>
+                        <span className={`text-xs font-semibold shrink-0 ${done ? 'text-green-600' : 'text-gray-700'}`}>{pct.toFixed(0)}%</span>
                       </div>
-                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${done ? 'bg-green-500' : pct >= 75 ? 'bg-black' : 'bg-gray-400'}`} style={{ width: `${pct}%` }} />
+
+                      {/* Progress bar */}
+                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-2">
+                        <div className={`h-full rounded-full transition-all duration-700 ${fillColor}`} style={{ width: `${pct}%` }} />
                       </div>
-                      {done  && <p className="text-xs text-green-500 font-medium mt-1">Goal reached! 🎉</p>}
-                      {!done && <p className="text-xs text-gray-400 mt-1">{fmtShort(remaining)} to go · tap to manage</p>}
+
+                      {/* Bottom row: amounts + deadline */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <span className="font-medium text-gray-800">{fmtShort(goal.current_amount)}</span>
+                          <span className="text-gray-300">/</span>
+                          <span>{fmtShort(goal.target_amount)}</span>
+                          {!done && <span className="text-gray-300 ml-1">· {fmtShort(remaining)} left</span>}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          {daysLeft !== null && !done && (
+                            <span className={`${daysLeft <= 7 ? 'text-red-500' : 'text-gray-400'}`}>
+                              {daysLeft > 0 ? `${daysLeft}d` : 'Overdue'}
+                            </span>
+                          )}
+                          {done && <span className="text-green-500">Goal reached! 🎉</span>}
+                          {/* Tap hint on hover */}
+                          <span className="text-gray-300 hidden group-hover:inline text-[10px]">Tap to manage →</span>
+                        </div>
+                      </div>
                     </div>
                   )
                 })}
@@ -1528,20 +1626,83 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Category filter */}
-            {activeTab === 'expenses' && !searchQuery && (
-              <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
-                {(['all', ...Object.keys(CATEGORY_CONFIG)] as (Category | 'all')[]).map(f => {
-                  const isAll = f === 'all'; const active = activeFilter === f; const cfg = isAll ? null : CATEGORY_CONFIG[f as Category]
-                  return (
-                    <button key={f} onClick={() => setActiveFilter(f)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap border transition-all ${active ? 'bg-black text-white border-black' : 'text-gray-500 border-gray-200 hover:border-gray-400 bg-white'}`}>
-                      {!isAll && <span className={active ? 'text-white' : cfg!.text}>{cfg!.icon}</span>}
-                      {isAll ? 'All' : cfg!.label.split(' ')[0]}
-                    </button>
-                  )
-                })}
-              </div>
+            {/* ── FIX 4: Category filter + Sort button — properly aligned on same row ── */}
+            {activeTab === 'expenses' && (
+              <>
+                {/* Single flex row — pills fill leftover space, filter button stays at the end */}
+                <div className="flex items-center gap-2 mb-2">
+                  {/* Scrollable pill area — flex-1 so it fills space but never pushes button off */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-1 min-w-0">
+                    {(['all', ...Object.keys(CATEGORY_CONFIG)] as (Category | 'all')[]).map(f => {
+                      const isAll = f === 'all'; const active = activeFilter === f; const cfg = isAll ? null : CATEGORY_CONFIG[f as Category]
+                      return (
+                        <button key={f} onClick={() => setActiveFilter(f)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap border transition-all shrink-0 ${active ? 'bg-black text-white border-black' : 'text-gray-500 border-gray-200 hover:border-gray-400 bg-white'}`}>
+                          {!isAll && <span className={active ? 'text-white' : cfg!.text}>{cfg!.icon}</span>}
+                          {isAll ? 'All' : cfg!.label.split(' ')[0]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Filter button — shrink-0 so it never gets pushed */}
+                  <button
+                    onClick={() => setShowFilters(v => !v)}
+                    className={`relative flex items-center justify-center w-7 h-7 rounded-lg border transition-all shrink-0 ${showFilters || activeFilterCount > 0 ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400 bg-white'}`}>
+                    <SlidersHorizontal size={12} />
+                    {activeFilterCount > 0 && !showFilters && (
+                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white rounded-full text-[8px] flex items-center justify-center font-medium">{activeFilterCount}</span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Filter panel */}
+                {showFilters && (
+                  <div className="border border-gray-100 rounded-xl p-3 mb-3 animate-slide-up">
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block uppercase tracking-wide">Min amount</label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
+                          <input type="text" inputMode="numeric" value={minAmount}
+                            onChange={e => setMinAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="0"
+                            className="w-full border border-gray-200 rounded-lg pl-8 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block uppercase tracking-wide">Max amount</label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
+                          <input type="text" inputMode="numeric" value={maxAmount}
+                            onChange={e => setMaxAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="∞"
+                            className="w-full border border-gray-200 rounded-lg pl-8 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 mb-1 block uppercase tracking-wide">Sort by</label>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {([
+                          { val: 'date-desc',   label: 'Newest' },
+                          { val: 'date-asc',    label: 'Oldest' },
+                          { val: 'amount-desc', label: 'Highest' },
+                          { val: 'amount-asc',  label: 'Lowest' },
+                        ] as { val: SortOrder; label: string }[]).map(s => (
+                          <button key={s.val} onClick={() => setSortOrder(s.val)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${sortOrder === s.val ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {(minAmount || maxAmount || sortOrder !== 'date-desc') && (
+                      <button onClick={() => { setMinAmount(''); setMaxAmount(''); setSortOrder('date-desc') }}
+                        className="mt-2 text-[10px] text-gray-400 hover:text-black transition-colors flex items-center gap-1">
+                        <X size={10} /> Clear filters
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             {/* Expenses list */}
@@ -1554,6 +1715,9 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
+                  {(minAmount || maxAmount || sortOrder !== 'date-desc' || searchQuery) && (
+                    <p className="text-xs text-gray-400 mb-1">{filteredExpenses.length} result{filteredExpenses.length !== 1 ? 's' : ''}</p>
+                  )}
                   {filteredExpenses.map((exp, idx) => {
                     const cfg = CATEGORY_CONFIG[exp.category]
                     return (
@@ -1571,7 +1735,7 @@ export default function Dashboard() {
                           <p className="text-xs text-gray-400 mt-0.5">{new Date(exp.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                         </div>
                         <RowMenu items={[
-                          { label: 'Edit', icon: <Pencil size={13} />, onClick: () => setEditingExpense(exp) },
+                          { label: 'Edit',   icon: <Pencil size={13} />, onClick: () => setEditingExpense(exp) },
                           { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => setDeletingExpense(exp), danger: true },
                         ]} />
                       </div>
@@ -1608,7 +1772,7 @@ export default function Dashboard() {
                           <p className="text-xs text-gray-400 mt-0.5">{new Date(inc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                         </div>
                         <RowMenu items={[
-                          { label: 'Edit', icon: <Pencil size={13} />, onClick: () => setEditingIncome(inc) },
+                          { label: 'Edit',   icon: <Pencil size={13} />, onClick: () => setEditingIncome(inc) },
                           { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => handleDeleteIncome(inc.id), danger: true },
                         ]} />
                       </div>
@@ -1661,39 +1825,21 @@ export default function Dashboard() {
                           <p className="text-sm font-medium text-black">{fmt(r.amount)}</p>
                           <p className="text-xs text-gray-400 mt-0.5">{dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                         </div>
-
                         {isPaid ? (
                           <div className="flex items-center gap-1 shrink-0">
-                            <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700">
-                              <Check size={11} /> Paid
-                            </span>
-                            <button
-                              onClick={() => handleUndoPayBill(r)}
-                              title="Undo payment"
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-all"
-                            >
-                              <Undo2 size={13} />
-                            </button>
+                            <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700"><Check size={11} /> Paid</span>
+                            <button onClick={() => handleUndoPayBill(r)} title="Undo payment" className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-all"><Undo2 size={13} /></button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handlePayBill(r)}
-                            disabled={paying}
+                          <button onClick={() => handlePayBill(r)} disabled={paying}
                             className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
-                              overdue || daysLeft <= 0
-                                ? 'bg-black text-white hover:bg-gray-800'
-                                : 'border border-gray-200 text-gray-600 hover:border-black hover:text-black'
-                            } disabled:opacity-50`}
-                          >
-                            {paying
-                              ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-                              : <><Check size={11} /> Pay</>
-                            }
+                              overdue || daysLeft <= 0 ? 'bg-black text-white hover:bg-gray-800' : 'border border-gray-200 text-gray-600 hover:border-black hover:text-black'
+                            } disabled:opacity-50`}>
+                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={11} /> Pay</>}
                           </button>
                         )}
-
                         <RowMenu items={[
-                          { label: 'Edit', icon: <Pencil size={13} />, onClick: () => setEditingBill(r) },
+                          { label: 'Edit',   icon: <Pencil size={13} />, onClick: () => setEditingBill(r) },
                           { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => handleDeleteBill(r.id), danger: true, disabled: deletingBillId === r.id },
                         ]} />
                       </div>
@@ -1703,6 +1849,15 @@ export default function Dashboard() {
               )
             )}
           </div>
+
+          {/* FIX 1: Export moved to a subtle link at the very bottom of the page on desktop */}
+          <div className="hidden sm:flex justify-center mt-8 pt-6 border-t border-gray-100">
+            <button onClick={() => exportCSV(expenses, income, selectedMonth)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-black transition-colors">
+              <Download size={12} /> Export {getMonthLabelFull(selectedMonth)} as CSV
+            </button>
+          </div>
+
         </div>
       </div>
 
