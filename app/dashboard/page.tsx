@@ -103,11 +103,14 @@ function nextDueDate(current: string, frequency: Frequency): string {
   if (frequency === 'monthly') d.setMonth(d.getMonth() + 1)
   return d.toISOString().slice(0, 10)
 }
+
+// FIX 1: localISOString — reads local date/time components directly, no offset math bugs
 function localISOString(): string {
   const now = new Date()
-  const offset = now.getTimezoneOffset() * 60000
-  return new Date(now.getTime() - offset).toISOString().slice(0, 19)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 }
+
 function exportCSV(expenses: Expense[], income: Income[], month: string) {
   const rows: string[] = [
     'Type,Date,Description,Category,Amount,Note',
@@ -1109,7 +1112,20 @@ export default function Dashboard() {
       setGoalHistories(map)
     }
   }
-  const fetchRecurring = async (uid: string) => { const { data } = await supabase.from('recurring_expenses').select('*').eq('user_id', uid).order('next_due', { ascending: true }); setRecurring(data || []) }
+
+  // FIX 2: fetchRecurring now rehydrates paid status from DB on load
+  const fetchRecurring = async (uid: string) => {
+    const { data } = await supabase.from('recurring_expenses').select('*').eq('user_id', uid).order('next_due', { ascending: true })
+    setRecurring(data || [])
+    const thisMonth = currentMonth()
+    const rehydrated: Record<string, string> = {}
+    ;(data || []).forEach((r: RecurringExpense) => {
+      if (r.last_paid_date && r.last_paid_date.slice(0, 7) === thisMonth) {
+        rehydrated[r.id] = 'persisted'
+      }
+    })
+    setLocalPaidBills(rehydrated)
+  }
 
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login') }
 
@@ -1155,12 +1171,13 @@ export default function Dashboard() {
     setShowAddGoal(false)
   }
 
+  // FIX 3: handleAddFunds — proper error variable destructuring
   const handleAddFunds = async (goalId: string, amount: number, note: string) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
     const goal = savingsGoals.find(g => g.id === goalId); if (!goal) return
     const newCurrent = goal.current_amount + amount
 
-    const { data: savingsExp } = await supabase.from('expenses').insert({
+    const { data: savingsExp, error: savingsError } = await supabase.from('expenses').insert({
       title: `Savings: ${goal.title}`,
       amount,
       category: 'savings',
@@ -1173,7 +1190,7 @@ export default function Dashboard() {
       supabase.from('savings_goals').update({ current_amount: newCurrent }).eq('id', goalId),
       supabase.from('savings_goal_history').insert({ goal_id: goalId, user_id: user.id, amount, note, created_at: localISOString() }).select().single()
     ])
-    if (savingsExp) setExpenses(prev => [savingsExp, ...prev])
+    if (!savingsError && savingsExp) setExpenses(prev => [savingsExp, ...prev])
     if (!e1) setSavingsGoals(prev => prev.map(g => g.id === goalId ? { ...g, current_amount: newCurrent } : g))
     if (!e2 && histRow) setGoalHistories(prev => ({ ...prev, [goalId]: [histRow, ...(prev[goalId] || [])] }))
     setOpenGoal(prev => prev?.id === goalId ? { ...prev, current_amount: newCurrent } : prev)
@@ -1275,7 +1292,9 @@ export default function Dashboard() {
   }
 
   const handleUndoPayBill = async (r: RecurringExpense) => {
-    const expId = localPaidBills[r.id]; if (!expId) return
+    const expId = localPaidBills[r.id]
+    // Can only undo if paid in this session (not just rehydrated from DB)
+    if (!expId || expId === 'persisted') return
 
     const d = new Date(r.next_due)
     if (r.frequency === 'daily')   d.setDate(d.getDate() - 1)
@@ -1312,10 +1331,20 @@ export default function Dashboard() {
   const lastMonthTotal     = useMemo(() => lastMonthExpenses.reduce((s, e) => s + e.amount, 0), [lastMonthExpenses])
   const thisMonthIncomeTot = useMemo(() => thisMonthIncome.reduce((s, i) => s + i.amount, 0), [thisMonthIncome])
   const netSavings         = thisMonthIncomeTot - thisMonthTotal
-  const avgPerDay          = useMemo(() => thisMonthTotal / new Date().getDate(), [thisMonthTotal])
+
+  // FIX 4: avgPerDay — use full month days for past months, elapsed days for current month
+  const avgPerDay = useMemo(() => {
+    const now = new Date()
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+    const daysElapsed = isCurrentMonth ? now.getDate() : new Date(yr, mo, 0).getDate()
+    return thisMonthTotal / daysElapsed
+  }, [thisMonthTotal, selectedMonth])
+
   const monthOverMonthPct  = lastMonthTotal === 0 ? 0 : ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
   const spendingRate = thisMonthIncomeTot > 0 ? Math.min((thisMonthTotal / thisMonthIncomeTot) * 100, 999) : 0
 
+  // FIX 5: removed selectedMonth from last6Months deps since it's not used inside
   const last6Months = useMemo(() => {
     const result = []; const now = new Date(); const yr = now.getFullYear(); const mo = now.getMonth()
     for (let i = 5; i >= 0; i--) {
@@ -1326,7 +1355,7 @@ export default function Dashboard() {
       result.push({ key, label: MONTHS_SHORT[m], total })
     }
     return result
-  }, [expenses, selectedMonth])
+  }, [expenses])
 
   const weeklyData = useMemo(() => {
     const weeks: { label: string; total: number }[] = []
@@ -1929,7 +1958,6 @@ export default function Dashboard() {
                     const cfg        = CATEGORY_CONFIG[r.category]
                     const dueDate    = new Date(r.next_due)
                     const daysLeft   = Math.ceil((dueDate.getTime() - Date.now()) / 86_400_000)
-                    // ✅ FIX: declare isPaid BEFORE it's used in overdue/dueSoon
                     const isPaid     = !!localPaidBills[r.id]
                     const localExpId = localPaidBills[r.id]
                     const overdue    = daysLeft < 0 && !isPaid
@@ -1963,7 +1991,8 @@ export default function Dashboard() {
                         {isPaid ? (
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700"><Check size={11} /> Paid</span>
-                            {localExpId && (
+                            {/* FIX 2: Only show undo if paid in this session, not rehydrated from DB */}
+                            {localExpId && localExpId !== 'persisted' && (
                               <button onClick={() => handleUndoPayBill(r)} title="Undo payment" className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-all"><Undo2 size={13} /></button>
                             )}
                           </div>
