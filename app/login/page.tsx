@@ -102,10 +102,10 @@ export default function LoginPage() {
           </div>
 
           <button
-            onClick={handleRegister}
-            className="w-full border border-gray-300 hover:border-black hover:bg-gray-50
-              active:scale-[0.98] text-black py-2.5 rounded-lg text-sm font-medium transition-all"
-          >
+          onClick={() => router.push('/register')}
+          className="w-full border border-gray-300 hover:border-black hover:bg-gray-50
+            active:scale-[0.98] text-black py-2.5 rounded-lg text-sm font-medium transition-all"
+        >
             Create an account
           </button>
         </div>

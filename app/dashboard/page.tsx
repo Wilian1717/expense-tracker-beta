@@ -79,6 +79,11 @@ function fmtShort(amount: number): string {
   if (amount >= 1_000)             return `Rp ${(amount / 1_000).toFixed(0)}rb`
   return `Rp ${amount}`
 }
+function inMonth(dateStr: string, month: string): boolean {
+  const d = new Date(dateStr)
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  return local === month
+}
 function currentMonth() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -98,16 +103,20 @@ function nextDueDate(current: string, frequency: Frequency): string {
   if (frequency === 'monthly') d.setMonth(d.getMonth() + 1)
   return d.toISOString().slice(0, 10)
 }
-
+function localISOString(): string {
+  const now = new Date()
+  const offset = now.getTimezoneOffset() * 60000
+  return new Date(now.getTime() - offset).toISOString().slice(0, 19)
+}
 function exportCSV(expenses: Expense[], income: Income[], month: string) {
   const rows: string[] = [
     'Type,Date,Description,Category,Amount,Note',
-    ...expenses.filter(e => e.created_at.startsWith(month)).map(e => [
+    ...expenses.filter(e => inMonth(e.created_at, month)).map(e => [
       'Expense', new Date(e.created_at).toLocaleDateString('en-US'),
       `"${e.title.replace(/"/g, '""')}"`, CATEGORY_CONFIG[e.category].label, e.amount,
       `"${(e.note || '').replace(/"/g, '""')}"`
     ].join(',')),
-    ...income.filter(i => i.created_at.startsWith(month)).map(i => [
+    ...income.filter(i => inMonth(i.created_at, month)).map(i => [
       'Income', new Date(i.created_at).toLocaleDateString('en-US'),
       `"${i.title.replace(/"/g, '""')}"`, INCOME_CONFIG[i.category].label, i.amount,
       `"${(i.note || '').replace(/"/g, '""')}"`
@@ -1106,7 +1115,7 @@ export default function Dashboard() {
 
   const handleAddExpense = async (data: { title: string; amount: number; category: Category; note: string }) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
-    const { data: inserted, error } = await supabase.from('expenses').insert({ ...data, user_id: user.id }).select().single()
+    const { data: inserted, error } = await supabase.from('expenses').insert({ ...data, user_id: user.id, created_at: localISOString() }).select().single()
     if (!error && inserted) setExpenses(prev => [inserted, ...prev])
     setShowAddExpense(false)
   }
@@ -1125,7 +1134,7 @@ export default function Dashboard() {
   }
   const handleAddIncome = async (data: { title: string; amount: number; category: IncomeCategory; note: string }) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
-    const { data: inserted, error } = await supabase.from('income').insert({ ...data, user_id: user.id }).select().single()
+    const { data: inserted, error } = await supabase.from('income').insert({ ...data, user_id: user.id, created_at: localISOString() }).select().single()
     if (!error && inserted) setIncome(prev => [inserted, ...prev])
     setShowAddIncome(false)
   }
@@ -1156,12 +1165,13 @@ export default function Dashboard() {
       amount,
       category: 'savings',
       note: note || `Added to goal: ${goal.title}`,
-      user_id: user.id
+      user_id: user.id,
+      created_at: localISOString()
     }).select().single()
 
     const [{ error: e1 }, { data: histRow, error: e2 }] = await Promise.all([
       supabase.from('savings_goals').update({ current_amount: newCurrent }).eq('id', goalId),
-      supabase.from('savings_goal_history').insert({ goal_id: goalId, user_id: user.id, amount, note }).select().single()
+      supabase.from('savings_goal_history').insert({ goal_id: goalId, user_id: user.id, amount, note, created_at: localISOString() }).select().single()
     ])
     if (savingsExp) setExpenses(prev => [savingsExp, ...prev])
     if (!e1) setSavingsGoals(prev => prev.map(g => g.id === goalId ? { ...g, current_amount: newCurrent } : g))
@@ -1246,7 +1256,8 @@ export default function Dashboard() {
         title: r.title, amount: r.amount,
         category: r.category,
         note: `${FREQ_LABELS[r.frequency]} bill`,
-        user_id: user.id
+        user_id: user.id,
+        created_at: localISOString()
       }).select().single()
     ])
 
@@ -1290,13 +1301,13 @@ export default function Dashboard() {
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────────
-  const thisMonthExpenses = useMemo(() => expenses.filter(e => e.created_at.startsWith(selectedMonth)), [expenses, selectedMonth])
+  const thisMonthExpenses = useMemo(() => expenses.filter(e => inMonth(e.created_at, selectedMonth)), [expenses, selectedMonth])
   const lastMonthExpenses = useMemo(() => {
     const now = new Date(selectedMonth + '-02'); now.setMonth(now.getMonth() - 1)
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    return expenses.filter(e => e.created_at.startsWith(key))
+    return expenses.filter(e => inMonth(e.created_at, key))
   }, [expenses, selectedMonth])
-  const thisMonthIncome    = useMemo(() => income.filter(i => i.created_at.startsWith(selectedMonth)), [income, selectedMonth])
+  const thisMonthIncome = useMemo(() => income.filter(i => inMonth(i.created_at, selectedMonth)), [income, selectedMonth])
   const thisMonthTotal     = useMemo(() => thisMonthExpenses.reduce((s, e) => s + e.amount, 0), [thisMonthExpenses])
   const lastMonthTotal     = useMemo(() => lastMonthExpenses.reduce((s, e) => s + e.amount, 0), [lastMonthExpenses])
   const thisMonthIncomeTot = useMemo(() => thisMonthIncome.reduce((s, i) => s + i.amount, 0), [thisMonthIncome])
@@ -1311,11 +1322,11 @@ export default function Dashboard() {
       let m = mo - i; let y = yr
       if (m < 0) { m += 12; y -= 1 }
       const key = `${y}-${String(m + 1).padStart(2, '0')}`
-      const total = expenses.filter(e => e.created_at.startsWith(key)).reduce((s, e) => s + e.amount, 0)
+      const total = expenses.filter(e => inMonth(e.created_at, key)).reduce((s, e) => s + e.amount, 0)
       result.push({ key, label: MONTHS_SHORT[m], total })
     }
     return result
-  }, [expenses])
+  }, [expenses, selectedMonth])
 
   const weeklyData = useMemo(() => {
     const weeks: { label: string; total: number }[] = []
