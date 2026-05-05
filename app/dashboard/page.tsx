@@ -11,7 +11,7 @@ import {
   DollarSign, Briefcase, BarChart2, PiggyBank, ArrowUpCircle, ArrowDownCircle,
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
-  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Music
+  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff
 } from 'lucide-react'
 
 type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'entertainment' | 'savings' | 'other'
@@ -104,7 +104,6 @@ function nextDueDate(current: string, frequency: Frequency): string {
   return d.toISOString().slice(0, 10)
 }
 
-// FIX 1: localISOString — reads local date/time components directly, no offset math bugs
 function localISOString(): string {
   const now = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -252,7 +251,7 @@ function MonthPickerDropdown({ months, selected, onChange }: {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[500] animate-slide-up">
+        <div className="absolute left-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[500] animate-slide-up">
           <div className="px-3 pt-3 pb-1">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Select month</p>
           </div>
@@ -264,9 +263,7 @@ function MonthPickerDropdown({ months, selected, onChange }: {
                   key={m.key}
                   onClick={() => { onChange(m.key); setOpen(false) }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-all ${
-                    isSelected
-                      ? 'bg-black text-white'
-                      : 'text-gray-700 hover:bg-gray-50'
+                    isSelected ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   <span className="font-medium">{getMonthLabelFull(m.key)}</span>
@@ -1054,6 +1051,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab]             = useState<'expenses' | 'income' | 'bills'>('expenses')
   const [selectedMonth, setSelectedMonth]     = useState(currentMonth())
   const [userEmail, setUserEmail]             = useState('')
+  const [fullName, setFullName]               = useState('')
+  const [showTotalBalance, setShowTotalBalance]     = useState(false)
+  const [showMonthlyBalance, setShowMonthlyBalance] = useState(false)
   const [loading, setLoading]                 = useState(true)
   const [searchQuery, setSearchQuery]         = useState('')
   const [showSearch, setShowSearch]           = useState(false)
@@ -1093,6 +1093,8 @@ export default function Dashboard() {
     const user = userData.user
     if (!user) { router.push('/login'); return }
     setUserEmail(user.email ?? '')
+    const rawName = user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? ''
+    setFullName(rawName.split(' ')[0])
     await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id)])
     setLoading(false)
   }
@@ -1112,8 +1114,6 @@ export default function Dashboard() {
       setGoalHistories(map)
     }
   }
-
-  // FIX 2: fetchRecurring now rehydrates paid status from DB on load
   const fetchRecurring = async (uid: string) => {
     const { data } = await supabase.from('recurring_expenses').select('*').eq('user_id', uid).order('next_due', { ascending: true })
     setRecurring(data || [])
@@ -1170,22 +1170,14 @@ export default function Dashboard() {
     if (!error && inserted) { setSavingsGoals(prev => [...prev, inserted]); setGoalHistories(prev => ({ ...prev, [inserted.id]: [] })) }
     setShowAddGoal(false)
   }
-
-  // FIX 3: handleAddFunds — proper error variable destructuring
   const handleAddFunds = async (goalId: string, amount: number, note: string) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
     const goal = savingsGoals.find(g => g.id === goalId); if (!goal) return
     const newCurrent = goal.current_amount + amount
-
     const { data: savingsExp, error: savingsError } = await supabase.from('expenses').insert({
-      title: `Savings: ${goal.title}`,
-      amount,
-      category: 'savings',
-      note: note || `Added to goal: ${goal.title}`,
-      user_id: user.id,
-      created_at: localISOString()
+      title: `Savings: ${goal.title}`, amount, category: 'savings',
+      note: note || `Added to goal: ${goal.title}`, user_id: user.id, created_at: localISOString()
     }).select().single()
-
     const [{ error: e1 }, { data: histRow, error: e2 }] = await Promise.all([
       supabase.from('savings_goals').update({ current_amount: newCurrent }).eq('id', goalId),
       supabase.from('savings_goal_history').insert({ goal_id: goalId, user_id: user.id, amount, note, created_at: localISOString() }).select().single()
@@ -1195,12 +1187,10 @@ export default function Dashboard() {
     if (!e2 && histRow) setGoalHistories(prev => ({ ...prev, [goalId]: [histRow, ...(prev[goalId] || [])] }))
     setOpenGoal(prev => prev?.id === goalId ? { ...prev, current_amount: newCurrent } : prev)
   }
-
   const handleDeleteGoalHistory = async (goalId: string, histId: string) => {
     const hist = goalHistories[goalId]?.find(h => h.id === histId); if (!hist) return
     const goal = savingsGoals.find(g => g.id === goalId); if (!goal) return
     const newCurrent = Math.max(0, goal.current_amount - hist.amount)
-
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user
     if (user) {
       const { data: matchingExp } = await supabase.from('expenses')
@@ -1211,13 +1201,11 @@ export default function Dashboard() {
         setExpenses(prev => prev.filter(e => e.id !== matchingExp[0].id))
       }
     }
-
     await Promise.all([supabase.from('savings_goal_history').delete().eq('id', histId), supabase.from('savings_goals').update({ current_amount: newCurrent }).eq('id', goalId)])
     setGoalHistories(prev => ({ ...prev, [goalId]: (prev[goalId] || []).filter(h => h.id !== histId) }))
     setSavingsGoals(prev => prev.map(g => g.id === goalId ? { ...g, current_amount: newCurrent } : g))
     setOpenGoal(prev => prev?.id === goalId ? { ...prev, current_amount: newCurrent } : prev)
   }
-
   const handleEditGoalHistory = async (goalId: string, histId: string, newAmount: number, note: string) => {
     const oldHist = goalHistories[goalId]?.find(h => h.id === histId); if (!oldHist) return
     const goal = savingsGoals.find(g => g.id === goalId); if (!goal) return
@@ -1255,66 +1243,34 @@ export default function Dashboard() {
     if (!error) setRecurring(prev => prev.filter(r => r.id !== id))
     setDeletingBillId(null)
   }
-
   const handlePayBill = async (r: RecurringExpense) => {
     if (localPaidBills[r.id]) return
     setPayingBillId(r.id)
     const { data: ud } = await supabase.auth.getUser()
     const user = ud.user; if (!user) { setPayingBillId(null); return }
-
     const today  = new Date().toISOString().slice(0, 10)
     const newDue = nextDueDate(r.next_due, r.frequency)
-
     const [{ error: e1 }, { data: newExp, error: e2 }] = await Promise.all([
-      supabase.from('recurring_expenses')
-        .update({ next_due: newDue, last_paid_date: today })
-        .eq('id', r.id),
-      supabase.from('expenses').insert({
-        title: r.title, amount: r.amount,
-        category: r.category,
-        note: `${FREQ_LABELS[r.frequency]} bill`,
-        user_id: user.id,
-        created_at: localISOString()
-      }).select().single()
+      supabase.from('recurring_expenses').update({ next_due: newDue, last_paid_date: today }).eq('id', r.id),
+      supabase.from('expenses').insert({ title: r.title, amount: r.amount, category: r.category, note: `${FREQ_LABELS[r.frequency]} bill`, user_id: user.id, created_at: localISOString() }).select().single()
     ])
-
-    if (!e1) setRecurring(prev =>
-      prev.map(rec => rec.id === r.id
-        ? { ...rec, next_due: newDue, last_paid_date: today }
-        : rec
-      ).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime())
-    )
-    if (!e2 && newExp) {
-      setExpenses(prev => [newExp, ...prev])
-      setLocalPaidBills(prev => ({ ...prev, [r.id]: newExp.id }))
-    }
+    if (!e1) setRecurring(prev => prev.map(rec => rec.id === r.id ? { ...rec, next_due: newDue, last_paid_date: today } : rec).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime()))
+    if (!e2 && newExp) { setExpenses(prev => [newExp, ...prev]); setLocalPaidBills(prev => ({ ...prev, [r.id]: newExp.id })) }
     setPayingBillId(null)
   }
-
   const handleUndoPayBill = async (r: RecurringExpense) => {
     const expId = localPaidBills[r.id]
-    // Can only undo if paid in this session (not just rehydrated from DB)
     if (!expId || expId === 'persisted') return
-
     const d = new Date(r.next_due)
     if (r.frequency === 'daily')   d.setDate(d.getDate() - 1)
     if (r.frequency === 'weekly')  d.setDate(d.getDate() - 7)
     if (r.frequency === 'monthly') d.setMonth(d.getMonth() - 1)
     const originalDue = d.toISOString().slice(0, 10)
-
     await Promise.all([
-      supabase.from('recurring_expenses')
-        .update({ next_due: originalDue, last_paid_date: null })
-        .eq('id', r.id),
+      supabase.from('recurring_expenses').update({ next_due: originalDue, last_paid_date: null }).eq('id', r.id),
       supabase.from('expenses').delete().eq('id', expId)
     ])
-
-    setRecurring(prev =>
-      prev.map(rec => rec.id === r.id
-        ? { ...rec, next_due: originalDue, last_paid_date: undefined }
-        : rec
-      ).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime())
-    )
+    setRecurring(prev => prev.map(rec => rec.id === r.id ? { ...rec, next_due: originalDue, last_paid_date: undefined } : rec).sort((a, b) => new Date(a.next_due).getTime() - new Date(b.next_due).getTime()))
     setExpenses(prev => prev.filter(e => e.id !== expId))
     setLocalPaidBills(prev => { const n = { ...prev }; delete n[r.id]; return n })
   }
@@ -1326,13 +1282,16 @@ export default function Dashboard() {
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     return expenses.filter(e => inMonth(e.created_at, key))
   }, [expenses, selectedMonth])
-  const thisMonthIncome = useMemo(() => income.filter(i => inMonth(i.created_at, selectedMonth)), [income, selectedMonth])
+  const thisMonthIncome    = useMemo(() => income.filter(i => inMonth(i.created_at, selectedMonth)), [income, selectedMonth])
   const thisMonthTotal     = useMemo(() => thisMonthExpenses.reduce((s, e) => s + e.amount, 0), [thisMonthExpenses])
   const lastMonthTotal     = useMemo(() => lastMonthExpenses.reduce((s, e) => s + e.amount, 0), [lastMonthExpenses])
   const thisMonthIncomeTot = useMemo(() => thisMonthIncome.reduce((s, i) => s + i.amount, 0), [thisMonthIncome])
   const netSavings         = thisMonthIncomeTot - thisMonthTotal
 
-  // FIX 4: avgPerDay — use full month days for past months, elapsed days for current month
+  const allTimeIncome   = useMemo(() => income.reduce((s, i) => s + i.amount, 0), [income])
+  const allTimeExpenses = useMemo(() => expenses.reduce((s, e) => s + e.amount, 0), [expenses])
+  const cumulativeBalance = allTimeIncome - allTimeExpenses
+
   const avgPerDay = useMemo(() => {
     const now = new Date()
     const [yr, mo] = selectedMonth.split('-').map(Number)
@@ -1344,7 +1303,6 @@ export default function Dashboard() {
   const monthOverMonthPct  = lastMonthTotal === 0 ? 0 : ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
   const spendingRate = thisMonthIncomeTot > 0 ? Math.min((thisMonthTotal / thisMonthIncomeTot) * 100, 999) : 0
 
-  // FIX 5: removed selectedMonth from last6Months deps since it's not used inside
   const last6Months = useMemo(() => {
     const result = []; const now = new Date(); const yr = now.getFullYear(); const mo = now.getMonth()
     for (let i = 5; i >= 0; i--) {
@@ -1445,10 +1403,9 @@ export default function Dashboard() {
           {/* ── Header ── */}
           <div className="flex justify-between items-center mb-5">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shrink-0"><Wallet size={15} color="white" /></div>
+              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
               <div>
-                <h1 className="text-base font-medium text-black leading-none tracking-tight">Expenses</h1>
-                <p className="text-xs text-gray-400 mt-0.5 hidden sm:block">{userEmail}</p>
+                <h1 className="text-base font-medium text-black leading-none tracking-tight">ExpenseFlow</h1>
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2">
@@ -1503,31 +1460,82 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Remaining Balance + Month nav ── */}
-          <div className="flex items-center justify-between mb-4 bg-gray-50 rounded-xl px-4 py-3">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Remaining balance</p>
-              <p className={`text-lg font-semibold leading-none ${netSavings >= 0 ? 'text-black' : 'text-red-600'}`}>
-                {fmtFull(Math.abs(netSavings))}
-                {netSavings < 0 && <span className="text-xs font-normal text-red-500 ml-1">deficit</span>}
+          {/* ── Welcome + Balance Card ── */}
+          <div className="mb-4">
+            {fullName && (
+              <p className="text-xs text-gray-400 mb-1 px-1">
+                Welcome back, <span className="font-semibold text-gray-700">{fullName}</span>
               </p>
-            </div>
-            <div className="flex items-center gap-1">
+            )}
+
+            {/* Month picker — below welcome, above cards */}
+            <div className="flex items-center gap-1 mb-2.5">
               <button onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)} disabled={!canGoPrev}
-                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-white transition-all disabled:opacity-25">
+                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
                 <ChevronLeft size={13} />
               </button>
-              <MonthPickerDropdown
-                months={last6Months}
-                selected={selectedMonth}
-                onChange={setSelectedMonth}
-              />
+              <MonthPickerDropdown months={last6Months} selected={selectedMonth} onChange={setSelectedMonth} />
               <button onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)} disabled={!canGoNext}
-                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-white transition-all disabled:opacity-25">
+                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
                 <ChevronRight size={13} />
               </button>
             </div>
+
+            <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+              {/* Total balance card */}
+              <div className="bg-black rounded-xl px-4 py-3.5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] text-white/60 font-medium uppercase tracking-wide">Total balance</p>
+                  <button
+                    onClick={() => setShowTotalBalance(v => !v)}
+                    className="text-white/50 hover:text-white transition-colors"
+                    title={showTotalBalance ? 'Hide' : 'Show'}
+                  >
+                    {showTotalBalance ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                <p className={`text-lg font-bold leading-none tracking-tight ${cumulativeBalance >= 0 ? 'text-white' : 'text-red-400'}`}>
+                  {showTotalBalance
+                    ? fmtFull(Math.abs(cumulativeBalance))
+                    : <span className="tracking-widest text-white/30 select-none text-base">••••••</span>
+                  }
+                </p>
+                {showTotalBalance && cumulativeBalance < 0 && (
+                  <p className="text-[10px] text-red-400 mt-1">deficit</p>
+                )}
+                {showTotalBalance && cumulativeBalance >= 0 && (
+                  <p className="text-[10px] text-white/40 mt-1">All time</p>
+                )}
+              </div>
+
+              {/* Monthly balance card */}
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3.5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">This month</p>
+                  <button
+                    onClick={() => setShowMonthlyBalance(v => !v)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                    title={showMonthlyBalance ? 'Hide' : 'Show'}
+                  >
+                    {showMonthlyBalance ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                <p className={`text-lg font-bold leading-none tracking-tight ${netSavings >= 0 ? 'text-black' : 'text-red-600'}`}>
+                  {showMonthlyBalance
+                    ? fmtFull(Math.abs(netSavings))
+                    : <span className="tracking-widest text-gray-300 select-none text-base">••••••</span>
+                  }
+                </p>
+                {showMonthlyBalance && netSavings < 0 && (
+                  <p className="text-[10px] text-red-500 mt-1">deficit</p>
+                )}
+                {showMonthlyBalance && netSavings >= 0 && (
+                  <p className="text-[10px] text-gray-400 mt-1">Remaining</p>
+                )}
+              </div>
+            </div>
           </div>
+          {/* ── END BALANCE SECTION ── */}
 
           {/* ── Stat Cards ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
@@ -1576,7 +1584,7 @@ export default function Dashboard() {
             <div className="border border-gray-100 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                  {chartView === 'monthly' ? 'Last 6 months' : `Weekly breakdown`}
+                  {chartView === 'monthly' ? 'Last 6 months' : 'Weekly breakdown'}
                 </p>
                 <div className="flex rounded-lg overflow-hidden border border-gray-200">
                   <button onClick={() => setChartView('monthly')}
@@ -1711,22 +1719,17 @@ export default function Dashboard() {
             ) : (
               <div className="flex flex-col gap-2">
                 {savingsGoals.map(goal => {
-                  const pct      = Math.min((goal.current_amount / goal.target_amount) * 100, 100)
-                  const done     = goal.current_amount >= goal.target_amount
+                  const pct       = Math.min((goal.current_amount / goal.target_amount) * 100, 100)
+                  const done      = goal.current_amount >= goal.target_amount
                   const remaining = goal.target_amount - goal.current_amount
                   let daysLeft: number | null = null
                   if (goal.deadline) daysLeft = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / 86_400_000)
-
                   const fillClass = done
                     ? 'bg-gradient-to-r from-emerald-400 to-green-500'
-                    : pct >= 75
-                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-                      : pct >= 40
-                        ? 'bg-gradient-to-r from-amber-400 to-orange-400'
-                        : 'bg-gradient-to-r from-rose-300 to-pink-400'
-
+                    : pct >= 75 ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                    : pct >= 40 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
+                    : 'bg-gradient-to-r from-rose-300 to-pink-400'
                   const dotColor = done ? 'bg-emerald-500' : pct >= 75 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-300'
-
                   return (
                     <div key={goal.id} onClick={() => setOpenGoal(goal)}
                       className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
@@ -1963,7 +1966,6 @@ export default function Dashboard() {
                     const overdue    = daysLeft < 0 && !isPaid
                     const dueSoon    = !isPaid && daysLeft >= 0 && daysLeft <= 3
                     const paying     = payingBillId === r.id
-
                     return (
                       <div key={r.id} className={`row-item flex items-center gap-3 border rounded-xl px-3 sm:px-4 py-3 transition-all ${
                         isPaid ? 'border-green-200 bg-green-50/30' : overdue ? 'border-red-200 bg-red-50/30' : dueSoon ? 'border-amber-200 bg-amber-50/20' : 'border-gray-100 hover:bg-gray-50'
@@ -1991,7 +1993,6 @@ export default function Dashboard() {
                         {isPaid ? (
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700"><Check size={11} /> Paid</span>
-                            {/* FIX 2: Only show undo if paid in this session, not rehydrated from DB */}
                             {localExpId && localExpId !== 'persisted' && (
                               <button onClick={() => handleUndoPayBill(r)} title="Undo payment" className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-all"><Undo2 size={13} /></button>
                             )}
