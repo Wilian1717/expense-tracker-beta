@@ -1133,12 +1133,12 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="preview-greeting">Welcome back, <strong>Alex</strong></div>
+              <div className="preview-greeting">Welcome back, <strong>Wilian</strong></div>
 
               <div className="preview-balance-row">
                 <div className="preview-bal-card dark">
                   <div className="preview-bal-label">Total Balance</div>
-                  <div className="preview-bal-val">Rp 42.1jt</div>
+                  <div className="preview-bal-val">Rp 88.8jt</div>
                 </div>
                 <div className="preview-bal-card light">
                   <div className="preview-bal-label">This Month</div>
