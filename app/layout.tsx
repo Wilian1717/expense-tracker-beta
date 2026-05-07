@@ -9,7 +9,7 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: "ExpenseFlow",
-  description: "ExpenseFlow is a modern expense tracking and financial management platform designed to help users monitor spending, manage budgets, and organize transactions efficiently",
+  description: "Modern expense tracking and financial management platform designed to help users monitor spending, manage budgets, and organize transactions efficiently",
 };
 
 export default function RootLayout({
@@ -19,6 +19,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full antialiased">
+      <head>
+        <link rel="apple-touch-icon" href="/icon.png" />
+        <link rel="icon" href="/icon.png" />
+      </head>
       <body className={`${poppins.className} min-h-full flex flex-col`}>
         {children}
       </body>
