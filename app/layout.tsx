@@ -8,8 +8,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Expense Tracker",
-  description: "Simple expense tracking app",
+  title: "ExpenseFlow",
+  description: "ExpenseFlow is a modern expense tracking and financial management platform designed to help users monitor spending, manage budgets, and organize transactions efficiently",
 };
 
 export default function RootLayout({
