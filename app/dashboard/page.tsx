@@ -1463,22 +1463,30 @@ export default function Dashboard() {
           {/* ── Welcome + Balance Card ── */}
           <div className="mb-4">
             {fullName && (
-              <p className="text-xs text-gray-400 mb-1 px-1">
-                Welcome back, <span className="font-semibold text-gray-700">{fullName}</span>
+              <p className="text-xl font-semibold text-black mb-3 tracking-tight">
+                Welcome back, <span className="text-gray-400 font-normal">{fullName}</span> 
               </p>
             )}
 
-            {/* Month picker — below welcome, above cards */}
-            <div className="flex items-center gap-1 mb-2.5">
-              <button onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)} disabled={!canGoPrev}
-                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
-                <ChevronLeft size={13} />
-              </button>
+            {/* Month picker — dropdown on left, arrow buttons grouped on right */}
+            <div className="flex items-center gap-2 mb-2.5">
               <MonthPickerDropdown months={last6Months} selected={selectedMonth} onChange={setSelectedMonth} />
-              <button onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)} disabled={!canGoNext}
-                className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-black hover:bg-gray-100 transition-all disabled:opacity-25">
-                <ChevronRight size={13} />
-              </button>
+              <div className="flex items-center gap-1 ml-auto">
+                <button
+                  onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)}
+                  disabled={!canGoPrev}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <button
+                  onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)}
+                  disabled={!canGoNext}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2.5 mb-2.5">

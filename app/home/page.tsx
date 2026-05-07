@@ -8,6 +8,7 @@ export default function Home() {
   const [scrolled, setScrolled] = useState(false)
   const [activeFeature, setActiveFeature] = useState(0)
   const [visible, setVisible] = useState<Record<string, boolean>>({})
+  const [menuOpen, setMenuOpen] = useState(false)
   const observerRefs = useRef<(HTMLElement | null)[]>([])
 
   useEffect(() => {
@@ -37,6 +38,29 @@ export default function Home() {
     document.querySelectorAll('[data-observe]').forEach(el => observer.observe(el))
     return () => observer.disconnect()
   }, [])
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.mobile-menu') && !target.closest('.hamburger-btn')) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  // Prevent body scroll when menu is open
+  useEffect(() => {
+    if (menuOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [menuOpen])
 
   const features = [
     { label: 'Track every cent', sub: 'Expenses & income', val: 'Rp 7.2jt', desc: 'spent this month' },
@@ -136,6 +160,175 @@ export default function Home() {
         }
         .nav-links a:hover { color: var(--black); }
         .nav-cta { display: flex; gap: 8px; }
+
+        /* ── Hamburger button ── */
+        .hamburger-btn {
+          display: none;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          width: 38px; height: 38px;
+          border-radius: 10px;
+          border: 1.5px solid var(--gray-2);
+          background: var(--white);
+          cursor: pointer;
+          gap: 5px;
+          transition: all 0.2s;
+          flex-shrink: 0;
+        }
+        .hamburger-btn:hover { border-color: var(--black); background: var(--gray-1); }
+        .hamburger-btn.open { background: var(--black); border-color: var(--black); }
+        .ham-line {
+          width: 16px; height: 1.5px;
+          background: var(--black);
+          border-radius: 2px;
+          transition: all 0.25s ease;
+          transform-origin: center;
+        }
+        .hamburger-btn.open .ham-line { background: var(--white); }
+        .hamburger-btn.open .ham-line:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+        .hamburger-btn.open .ham-line:nth-child(2) { opacity: 0; transform: scaleX(0); }
+        .hamburger-btn.open .ham-line:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+
+        /* ── Mobile drawer overlay ── */
+        .mobile-overlay {
+          display: none;
+          position: fixed; inset: 0;
+          background: rgba(0,0,0,0.35);
+          z-index: 199;
+          animation: fadeIn 0.2s ease;
+        }
+        .mobile-overlay.open { display: block; }
+
+        /* ── Mobile menu drawer ── */
+        .mobile-menu {
+          display: none;
+          position: fixed;
+          top: 0; right: 0;
+          width: min(320px, 100vw);
+          height: 100vh;
+          background: var(--white);
+          z-index: 200;
+          border-left: 1.5px solid var(--gray-2);
+          padding: 24px;
+          flex-direction: column;
+          transform: translateX(100%);
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: -8px 0 40px rgba(0,0,0,0.15);
+          overflow-y: auto;
+        }
+        .mobile-menu.open {
+          transform: translateX(0);
+        }
+
+        .mobile-menu-header {
+          display: flex; justify-content: space-between; align-items: center;
+          margin-bottom: 32px;
+          padding-bottom: 20px;
+          border-bottom: 1px solid var(--gray-2);
+        }
+        .mobile-menu-logo {
+          display: flex; align-items: center; gap: 8px;
+        }
+        .mobile-menu-logo img {
+          width: 28px; height: 28px; border-radius: 7px; object-fit: cover;
+        }
+        .mobile-menu-logo span {
+          font-size: 15px; font-weight: 700; color: var(--black); letter-spacing: -0.02em;
+        }
+        .mobile-menu-close {
+          width: 32px; height: 32px;
+          border-radius: 8px;
+          border: 1.5px solid var(--gray-2);
+          background: var(--gray-1);
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer;
+          font-size: 14px; color: var(--gray-4);
+          transition: all 0.15s;
+        }
+        .mobile-menu-close:hover { border-color: var(--black); color: var(--black); background: var(--gray-2); }
+
+        .mobile-nav-links {
+          list-style: none;
+          display: flex; flex-direction: column; gap: 2px;
+          margin-bottom: 28px;
+        }
+        .mobile-nav-links a {
+          display: flex; align-items: center;
+          padding: 13px 14px;
+          font-size: 15px; font-weight: 400;
+          color: var(--gray-5);
+          text-decoration: none;
+          border-radius: 10px;
+          transition: all 0.15s;
+        }
+        .mobile-nav-links a:hover {
+          background: var(--gray-1);
+          color: var(--black);
+        }
+
+        .mobile-menu-divider {
+          height: 1px; background: var(--gray-2);
+          margin-bottom: 24px;
+        }
+
+        .mobile-cta {
+          display: flex; flex-direction: column; gap: 10px;
+          margin-top: auto;
+        }
+        .mobile-cta-label {
+          font-family: 'DM Mono', monospace;
+          font-size: 9px; font-weight: 500;
+          letter-spacing: 0.2em; text-transform: uppercase;
+          color: var(--gray-3);
+          margin-bottom: 4px;
+        }
+        .btn-mobile-outline {
+          font-family: 'Sora', sans-serif;
+          font-size: 14px; font-weight: 600;
+          padding: 13px 20px;
+          border-radius: 12px;
+          border: 1.5px solid var(--gray-2);
+          background: var(--white);
+          color: var(--black);
+          cursor: pointer;
+          transition: all 0.2s;
+          text-align: center;
+          width: 100%;
+        }
+        .btn-mobile-outline:hover { border-color: var(--black); background: var(--gray-1); }
+        .btn-mobile-black {
+          font-family: 'Sora', sans-serif;
+          font-size: 14px; font-weight: 600;
+          padding: 13px 20px;
+          border-radius: 12px;
+          border: none;
+          background: var(--black);
+          color: var(--white);
+          cursor: pointer;
+          transition: all 0.2s;
+          text-align: center;
+          width: 100%;
+        }
+        .btn-mobile-black:hover { background: var(--black-soft); }
+
+        .mobile-menu-footer {
+          margin-top: 32px;
+          padding-top: 20px;
+          border-top: 1px solid var(--gray-2);
+        }
+        .mobile-menu-badge {
+          font-family: 'DM Mono', monospace;
+          font-size: 10px; color: var(--gray-4);
+          letter-spacing: 0.08em;
+          display: flex; align-items: center; gap: 6px;
+        }
+        .mobile-menu-badge-dot {
+          width: 5px; height: 5px; border-radius: 50%; background: #22c55e;
+          animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         /* ── Buttons ── */
         .btn {
@@ -788,7 +981,13 @@ export default function Home() {
         @media (max-width: 900px) {
           .nav { padding: 16px 20px; }
           .nav.scrolled { padding: 12px 20px; }
+          /* Hide desktop links and cta, show hamburger */
           .nav-links { display: none; }
+          .nav-cta { display: none; }
+          .hamburger-btn { display: flex; }
+          /* Show mobile menu */
+          .mobile-menu { display: flex; }
+
           .hero { padding: 100px 20px 60px; }
           .section { padding: 72px 20px; }
           .stats-grid { grid-template-columns: 1fr 1fr; }
@@ -804,8 +1003,48 @@ export default function Home() {
           .cta-section { margin: 0 20px 80px; padding: 60px 32px; }
           .footer-top { flex-direction: column; gap: 40px; }
           .footer-links { gap: 40px; }
+          footer { padding: 48px 20px 32px; }
         }
       `}</style>
+
+      {/* ── Mobile overlay ── */}
+      <div className={`mobile-overlay ${menuOpen ? 'open' : ''}`} onClick={() => setMenuOpen(false)} />
+
+      {/* ── Mobile drawer ── */}
+      <div className={`mobile-menu ${menuOpen ? 'open' : ''}`}>
+        <div className="mobile-menu-header">
+          <div className="mobile-menu-logo">
+            <img src="/logo.png" alt="ExpenseFlow" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <span>ExpenseFlow</span>
+          </div>
+          <button className="mobile-menu-close" onClick={() => setMenuOpen(false)}>✕</button>
+        </div>
+
+        <ul className="mobile-nav-links">
+          <li><a href="#about" onClick={() => setMenuOpen(false)}>About</a></li>
+          <li><a href="#features" onClick={() => setMenuOpen(false)}>Features</a></li>
+          <li><a href="#how" onClick={() => setMenuOpen(false)}>How it works</a></li>
+        </ul>
+
+        <div className="mobile-menu-divider" />
+
+        <div className="mobile-cta">
+          <div className="mobile-cta-label">Get started</div>
+          <button className="btn-mobile-outline" onClick={() => { setMenuOpen(false); router.push('/login') }}>
+            Sign in
+          </button>
+          <button className="btn-mobile-black" onClick={() => { setMenuOpen(false); router.push('/register') }}>
+            Get started →
+          </button>
+        </div>
+
+        <div className="mobile-menu-footer">
+          <div className="mobile-menu-badge">
+            <span className="mobile-menu-badge-dot" />
+            Free forever · No credit card needed
+          </div>
+        </div>
+      </div>
 
       {/* ── Nav ── */}
       <nav className={`nav ${scrolled ? 'scrolled' : ''}`}>
@@ -822,6 +1061,16 @@ export default function Home() {
           <button className="btn btn-outline" onClick={() => router.push('/login')}>Sign in</button>
           <button className="btn btn-black" onClick={() => router.push('/register')}>Get started →</button>
         </div>
+        {/* Hamburger — mobile only */}
+        <button
+          className={`hamburger-btn ${menuOpen ? 'open' : ''}`}
+          onClick={() => setMenuOpen(v => !v)}
+          aria-label="Open menu"
+        >
+          <span className="ham-line" />
+          <span className="ham-line" />
+          <span className="ham-line" />
+        </button>
       </nav>
 
       {/* ── Hero ── */}
@@ -840,7 +1089,7 @@ export default function Home() {
         </h1>
 
         <p className="hero-sub">
-          ExpenseFlow is the personal finance tracker built for people who take money seriously — clean, fast, and completely free.
+          ExpenseFlow is the personal finance tracker built for Indonesian people who take money seriously — clean, fast, and completely free.
         </p>
 
         <div className="hero-actions">
@@ -1160,7 +1409,7 @@ export default function Home() {
           </div>
         </div>
         <div className="footer-bottom">
-          <span className="footer-copy">© 2026 ExpenseFlow. Personal use only.</span>
+          <span className="footer-copy">© 2026 ExpenseFlow by Wilian. Personal use only.</span>
           <span className="footer-badge">Next.js + Supabase</span>
         </div>
       </footer>

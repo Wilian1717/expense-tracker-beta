@@ -1,22 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
-import { Check, X, Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { Check, X, Eye, EyeOff, ArrowLeft, Shield } from 'lucide-react'
 
 export default function RegisterPage() {
-  const [fullName, setFullName]               = useState('')
-  const [email, setEmail]                     = useState('')
-  const [password, setPassword]               = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [showPassword, setShowPassword]       = useState(false)
-  const [showConfirm, setShowConfirm]         = useState(false)
-  const [agreedToTerms, setAgreedToTerms]     = useState(false)
-  const [showTerms, setShowTerms]             = useState(false)
-  const [loading, setLoading]                 = useState(false)
-  const [error, setError]                     = useState('')
-  const [success, setSuccess]                 = useState(false)
+  const [fullName, setFullName]                 = useState('')
+  const [email, setEmail]                       = useState('')
+  const [password, setPassword]                 = useState('')
+  const [confirmPassword, setConfirmPassword]   = useState('')
+  const [showPassword, setShowPassword]         = useState(false)
+  const [showConfirm, setShowConfirm]           = useState(false)
+  const [agreedToTerms, setAgreedToTerms]       = useState(false)
+  const [showTerms, setShowTerms]               = useState(false)
+  const [loading, setLoading]                   = useState(false)
+  const [error, setError]                       = useState('')
+  const [success, setSuccess]                   = useState(false)
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null)
   const router = useRouter()
 
   const checks = {
@@ -24,11 +25,25 @@ export default function RegisterPage() {
     upper:  /[A-Z]/.test(password),
     number: /[0-9]/.test(password),
   }
-  const passwordStrong  = Object.values(checks).every(Boolean)
-  const passwordsMatch  = password === confirmPassword && confirmPassword !== ''
+  const passwordStrong = Object.values(checks).every(Boolean)
+  const passwordsMatch = password === confirmPassword && confirmPassword !== ''
+
+  // ── Check if registration is enabled on mount ─────────────────────────────
+  useEffect(() => {
+    const checkRegistration = async () => {
+      const { data } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'registration_enabled')
+        .single()
+      setRegistrationOpen(data?.value === 'true')
+    }
+    checkRegistration()
+  }, [])
 
   const handleRegister = async () => {
     setError('')
+    if (registrationOpen === false) { setError('Registration is currently closed. Please contact the owner.'); return }
     if (!fullName.trim()) { setError('Please enter your full name.'); return }
     if (!email.trim())    { setError('Please enter your email address.'); return }
     if (!passwordStrong)  { setError('Password does not meet all requirements.'); return }
@@ -171,7 +186,7 @@ export default function RegisterPage() {
       {/* ─── Main layout ─── */}
       <div className="register-root">
 
-        {/* ── Right panel (form/white) — now first/left ── */}
+        {/* ── Form panel (left) ── */}
         <div className="right-panel">
           <button className="right-back" onClick={() => router.push('/home')}>
             <ArrowLeft size={13} />
@@ -207,6 +222,21 @@ export default function RegisterPage() {
             <h1 className="form-title">Create account</h1>
             <p className="form-sub">Start tracking your finances for free</p>
 
+            {/* ── Registration closed notice ── */}
+            {registrationOpen === false && (
+              <div className="closed-banner">
+                <div className="closed-banner-icon">
+                  <Shield size={14} color="white" />
+                </div>
+                <div>
+                  <p className="closed-banner-title">Registration is currently limited</p>
+                  <p className="closed-banner-sub">
+                    We're managing access carefully. If you'd like an account, please contact the owner.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Fields */}
             <div className="field-group">
 
@@ -221,6 +251,7 @@ export default function RegisterPage() {
                   onChange={e => setFullName(e.target.value)}
                   onKeyDown={handleKeyDown}
                   autoComplete="name"
+                  disabled={registrationOpen === false}
                 />
               </div>
 
@@ -235,6 +266,7 @@ export default function RegisterPage() {
                   onChange={e => setEmail(e.target.value)}
                   onKeyDown={handleKeyDown}
                   autoComplete="email"
+                  disabled={registrationOpen === false}
                 />
               </div>
 
@@ -250,9 +282,15 @@ export default function RegisterPage() {
                     onChange={e => setPassword(e.target.value)}
                     onKeyDown={handleKeyDown}
                     autoComplete="new-password"
+                    disabled={registrationOpen === false}
                     style={{ paddingRight: 44 }}
                   />
-                  <button type="button" className="field-pass-eye" onClick={() => setShowPassword(v => !v)}>
+                  <button
+                    type="button"
+                    className="field-pass-eye"
+                    onClick={() => setShowPassword(v => !v)}
+                    disabled={registrationOpen === false}
+                  >
                     {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
@@ -299,6 +337,7 @@ export default function RegisterPage() {
                     onChange={e => setConfirmPassword(e.target.value)}
                     onKeyDown={handleKeyDown}
                     autoComplete="new-password"
+                    disabled={registrationOpen === false}
                     style={{
                       paddingRight: 44,
                       borderColor: confirmPassword.length > 0
@@ -311,7 +350,12 @@ export default function RegisterPage() {
                         : undefined,
                     }}
                   />
-                  <button type="button" className="field-pass-eye" onClick={() => setShowConfirm(v => !v)}>
+                  <button
+                    type="button"
+                    className="field-pass-eye"
+                    onClick={() => setShowConfirm(v => !v)}
+                    disabled={registrationOpen === false}
+                  >
                     {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
@@ -327,7 +371,8 @@ export default function RegisterPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 20 }}>
               <button
                 type="button"
-                onClick={() => setAgreedToTerms(v => !v)}
+                onClick={() => registrationOpen !== false && setAgreedToTerms(v => !v)}
+                disabled={registrationOpen === false}
                 style={{
                   marginTop: 1,
                   width: 16, height: 16,
@@ -335,23 +380,26 @@ export default function RegisterPage() {
                   border: `2px solid ${agreedToTerms ? '#111110' : '#d1d0c8'}`,
                   background: agreedToTerms ? '#111110' : '#ffffff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, cursor: 'pointer',
+                  flexShrink: 0,
+                  cursor: registrationOpen === false ? 'not-allowed' : 'pointer',
                   transition: 'all 0.18s',
+                  opacity: registrationOpen === false ? 0.4 : 1,
                 }}
               >
                 {agreedToTerms && <Check size={9} color="white" strokeWidth={3} />}
               </button>
-              <p style={{ fontSize: 12, color: '#8a8980', lineHeight: 1.6 }}>
+              <p style={{ fontSize: 12, color: '#8a8980', lineHeight: 1.6, opacity: registrationOpen === false ? 0.4 : 1 }}>
                 I agree to the{' '}
                 <button
                   type="button"
                   onClick={() => setShowTerms(true)}
+                  disabled={registrationOpen === false}
                   style={{
                     background: 'none', border: 'none', padding: 0,
                     fontSize: 12, color: '#111110', fontWeight: 600,
                     textDecoration: 'underline', textUnderlineOffset: 2,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                    transition: 'color 0.15s',
+                    cursor: registrationOpen === false ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit', transition: 'color 0.15s',
                   }}
                 >
                   Terms & Conditions
@@ -365,15 +413,19 @@ export default function RegisterPage() {
               <div className="error-box">{error}</div>
             )}
 
-            {/* Submit */}
+            {/* Submit — disabled when closed, loading, or still checking */}
             <button
               className="btn-primary"
               onClick={handleRegister}
-              disabled={loading}
+              disabled={loading || registrationOpen === false || registrationOpen === null}
             >
-              {loading
-                ? <><div className="spinner" /> Creating account...</>
-                : 'Create account'
+              {registrationOpen === null
+                ? <><div className="spinner" /> Checking...</>
+                : loading
+                  ? <><div className="spinner" /> Creating account...</>
+                  : registrationOpen === false
+                    ? 'Registration closed'
+                    : 'Create account'
               }
             </button>
 
@@ -395,7 +447,7 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* ── Left panel (dark) — now second/right ── */}
+        {/* ── Dark panel (right) ── */}
         <div className="left-panel">
           <div className="left-noise" />
           <div className="left-grid" />
@@ -405,7 +457,7 @@ export default function RegisterPage() {
           {/* Logo */}
           <div className="left-logo">
             <img
-              src="/logo2.png"
+              src="/logo.png"
               alt="ExpenseFlow"
               className="left-logo-img"
               onError={e => {
@@ -461,14 +513,12 @@ export default function RegisterPage() {
           </div>
         </div>
 
-
-
       </div>
     </>
   )
 }
 
-/* ─── Shared styles (mirrors login page exactly) ─── */
+/* ─── Styles ─── */
 const baseStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
@@ -486,13 +536,11 @@ const baseStyles = `
     grid-template-columns: 1fr 1fr;
   }
 
-  /* ── Left panel ── */
+  /* ── Dark panel ── */
   .left-panel {
     background: #111110;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
     justify-content: space-between;
     padding: 48px;
   }
@@ -506,26 +554,18 @@ const baseStyles = `
     background-image:
       linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-    background-size: 48px 48px;
-    pointer-events: none;
+    background-size: 48px 48px; pointer-events: none;
   }
   .left-glow {
-    position: absolute;
-    width: 500px; height: 500px;
-    border-radius: 50%;
+    position: absolute; width: 500px; height: 500px; border-radius: 50%;
     background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 65%);
-    top: -100px; left: -100px;
-    pointer-events: none;
+    top: -100px; left: -100px; pointer-events: none;
   }
   .left-glow-2 {
-    position: absolute;
-    width: 300px; height: 300px;
-    border-radius: 50%;
+    position: absolute; width: 300px; height: 300px; border-radius: 50%;
     background: radial-gradient(circle, rgba(255,255,255,0.04) 0%, transparent 70%);
-    bottom: 60px; right: -60px;
-    pointer-events: none;
+    bottom: 60px; right: -60px; pointer-events: none;
   }
-
   .left-logo {
     display: flex; align-items: center; gap: 10px;
     position: relative; z-index: 1;
@@ -533,59 +573,37 @@ const baseStyles = `
     animation: fadeSlideDown 0.6s ease 0.1s forwards;
   }
   .left-logo-img {
-    width: 36px; height: 36px;
-    border-radius: 10px; object-fit: cover;
+    width: 36px; height: 36px; border-radius: 10px; object-fit: cover;
     border: 1px solid rgba(255,255,255,0.1);
   }
   .left-logo-fallback {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.12);
+    width: 36px; height: 36px; border-radius: 10px;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
     display: flex; align-items: center; justify-content: center;
   }
-  .left-logo-fallback-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 2.5px;
-  }
-  .left-logo-fallback-grid div {
-    width: 7px; height: 7px; border-radius: 2px;
-  }
-  .left-logo-name {
-    font-size: 16px; font-weight: 700;
-    color: #ffffff; letter-spacing: -0.02em;
-  }
-
+  .left-logo-fallback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5px; }
+  .left-logo-fallback-grid div { width: 7px; height: 7px; border-radius: 2px; }
+  .left-logo-name { font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em; }
   .left-mid {
     position: relative; z-index: 1;
     opacity: 0; transform: translateY(20px);
     animation: fadeSlideUp 0.7s ease 0.3s forwards;
   }
   .left-eyebrow {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px; font-weight: 500;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.3);
-    margin-bottom: 20px;
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.3); margin-bottom: 20px;
     display: flex; align-items: center; gap: 10px;
   }
-  .left-eyebrow::before {
-    content: '';
-    width: 28px; height: 1px;
-    background: rgba(255,255,255,0.2);
-  }
+  .left-eyebrow::before { content: ''; width: 28px; height: 1px; background: rgba(255,255,255,0.2); }
   .left-headline {
-    font-size: clamp(36px, 3.5vw, 52px);
-    font-weight: 800; line-height: 1.05;
-    letter-spacing: -0.04em;
-    color: #ffffff; margin-bottom: 20px;
+    font-size: clamp(36px, 3.5vw, 52px); font-weight: 800; line-height: 1.05;
+    letter-spacing: -0.04em; color: #ffffff; margin-bottom: 20px;
   }
   .left-headline .dim { color: rgba(255,255,255,0.25); }
   .left-sub {
-    font-size: 14px; font-weight: 300;
-    color: rgba(255,255,255,0.45);
-    line-height: 1.7; max-width: 320px;
-    margin-bottom: 28px;
+    font-size: 14px; font-weight: 300; color: rgba(255,255,255,0.45);
+    line-height: 1.7; max-width: 320px; margin-bottom: 28px;
   }
   .left-features { display: flex; flex-direction: column; gap: 10px; }
   .left-feature-item {
@@ -593,58 +611,35 @@ const baseStyles = `
     font-size: 12px; color: rgba(255,255,255,0.4);
   }
   .left-feature-dot {
-    width: 5px; height: 5px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.2);
-    flex-shrink: 0;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(255,255,255,0.2); flex-shrink: 0;
   }
-
   .left-bottom { position: relative; z-index: 1; }
-  .left-divider {
-    width: 32px; height: 1px;
-    background: rgba(255,255,255,0.1);
-    margin-bottom: 24px;
-  }
-  .left-stats {
-    display: flex; gap: 32px;
-    opacity: 0;
-    animation: fadeIn 0.7s ease 0.55s forwards;
-  }
+  .left-divider { width: 32px; height: 1px; background: rgba(255,255,255,0.1); margin-bottom: 24px; }
+  .left-stats { display: flex; gap: 32px; opacity: 0; animation: fadeIn 0.7s ease 0.55s forwards; }
   .left-stat-num {
-    font-size: 26px; font-weight: 800;
-    letter-spacing: -0.04em;
-    color: #ffffff; line-height: 1;
-    margin-bottom: 4px;
+    font-size: 26px; font-weight: 800; letter-spacing: -0.04em;
+    color: #ffffff; line-height: 1; margin-bottom: 4px;
   }
-  .left-stat-lbl {
-    font-size: 10px; color: rgba(255,255,255,0.3);
-    text-transform: uppercase; letter-spacing: 0.1em;
-  }
+  .left-stat-lbl { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 0.1em; }
 
-  /* ── Right panel ── */
+  /* ── Form panel ── */
   .right-panel {
     background: #ffffff;
     display: flex; align-items: center; justify-content: center;
-    padding: 48px; position: relative;
-    overflow-y: auto;
+    padding: 48px; position: relative; overflow-y: auto;
   }
   .right-panel::before {
-    content: '';
-    position: absolute; inset: 0;
+    content: ''; position: absolute; inset: 0;
     background-image: radial-gradient(circle, #e4e3de 1px, transparent 1px);
-    background-size: 28px 28px;
-    opacity: 0.4;
-    pointer-events: none;
+    background-size: 28px 28px; opacity: 0.4; pointer-events: none;
   }
-
   .right-back {
     position: absolute; top: 28px; left: 28px;
     display: flex; align-items: center; gap: 6px;
-    font-size: 12px; font-weight: 500;
-    color: #8a8980; cursor: pointer;
+    font-size: 12px; font-weight: 500; color: #8a8980; cursor: pointer;
     z-index: 2; background: none; border: none;
-    font-family: 'Sora', sans-serif;
-    transition: color 0.2s;
+    font-family: 'Sora', sans-serif; transition: color 0.2s;
   }
   .right-back:hover { color: #111110; }
   .right-back svg { transition: transform 0.2s; }
@@ -654,158 +649,105 @@ const baseStyles = `
     width: 100%; max-width: 380px;
     opacity: 0; transform: translateY(16px);
     animation: fadeSlideUp 0.65s ease 0.2s forwards;
-    position: relative; z-index: 1;
-    padding: 8px 0;
+    position: relative; z-index: 1; padding: 8px 0;
   }
-
-  .form-logo {
-    display: flex; align-items: center; gap: 9px;
-    margin-bottom: 28px;
-  }
-  .form-logo-img {
-    width: 32px; height: 32px;
-    border-radius: 9px; object-fit: cover;
-    border: 1px solid #e4e3de;
-  }
+  .form-logo { display: flex; align-items: center; gap: 9px; margin-bottom: 28px; }
+  .form-logo-img { width: 32px; height: 32px; border-radius: 9px; object-fit: cover; border: 1px solid #e4e3de; }
   .form-logo-fallback {
-    width: 32px; height: 32px;
-    border-radius: 9px; background: #111110;
+    width: 32px; height: 32px; border-radius: 9px; background: #111110;
     display: flex; align-items: center; justify-content: center;
   }
-  .form-logo-fallback-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 2.5px;
-  }
-  .form-logo-fallback-grid div {
-    width: 6px; height: 6px; border-radius: 1.5px;
-  }
-  .form-logo-name {
-    font-size: 14px; font-weight: 700;
-    color: #111110; letter-spacing: -0.02em;
-  }
+  .form-logo-fallback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5px; }
+  .form-logo-fallback-grid div { width: 6px; height: 6px; border-radius: 1.5px; }
+  .form-logo-name { font-size: 14px; font-weight: 700; color: #111110; letter-spacing: -0.02em; }
+  .form-title { font-size: 26px; font-weight: 800; letter-spacing: -0.04em; color: #111110; margin-bottom: 6px; }
+  .form-sub { font-size: 13px; font-weight: 300; color: #8a8980; margin-bottom: 20px; line-height: 1.6; }
 
-  .form-title {
-    font-size: 26px; font-weight: 800;
-    letter-spacing: -0.04em;
-    color: #111110; margin-bottom: 6px;
+  /* ── Closed banner ── */
+  .closed-banner {
+    display: flex; align-items: flex-start; gap: 10px;
+    background: #f8f8f6; border: 1.5px solid #e4e3de;
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 18px;
   }
-  .form-sub {
-    font-size: 13px; font-weight: 300;
-    color: #8a8980; margin-bottom: 28px;
-    line-height: 1.6;
+  .closed-banner-icon {
+    width: 26px; height: 26px; background: #111110; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
   }
+  .closed-banner-title { font-size: 12px; font-weight: 700; color: #111110; margin-bottom: 3px; }
+  .closed-banner-sub { font-size: 11px; color: #8a8980; line-height: 1.5; }
 
+  /* ── Fields ── */
   .field-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
-
   .field-label {
-    display: block;
-    font-size: 11px; font-weight: 600;
-    color: #5a5950;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 6px;
+    display: block; font-size: 11px; font-weight: 600; color: #5a5950;
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
   }
   .field-input {
-    width: 100%;
-    border: 1.5px solid #e4e3de;
-    border-radius: 10px;
-    padding: 11px 14px;
-    font-family: 'Sora', sans-serif;
-    font-size: 14px; color: #111110;
-    background: #ffffff; outline: none;
+    width: 100%; border: 1.5px solid #e4e3de; border-radius: 10px;
+    padding: 11px 14px; font-family: 'Sora', sans-serif;
+    font-size: 14px; color: #111110; background: #ffffff; outline: none;
     transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
   }
-  .field-input:hover { border-color: #c8c7c0; background: #f8f8f6; }
+  .field-input:hover:not(:disabled) { border-color: #c8c7c0; background: #f8f8f6; }
   .field-input:focus { border-color: #111110; box-shadow: 0 0 0 3px rgba(0,0,0,0.06); background: #ffffff; }
   .field-input::placeholder { color: #c8c7c0; }
+  .field-input:disabled { background: #f8f8f6; color: #c8c7c0; cursor: not-allowed; }
 
   .field-pass-wrap { position: relative; }
   .field-pass-eye {
-    position: absolute; right: 14px; top: 50%;
-    transform: translateY(-50%);
-    background: none; border: none;
-    color: #c8c7c0; cursor: pointer;
-    padding: 2px; border-radius: 4px;
-    display: flex; transition: color 0.2s;
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: #c8c7c0; cursor: pointer;
+    padding: 2px; border-radius: 4px; display: flex; transition: color 0.2s;
   }
-  .field-pass-eye:hover { color: #111110; }
+  .field-pass-eye:hover:not(:disabled) { color: #111110; }
+  .field-pass-eye:disabled { cursor: not-allowed; }
 
   .error-box {
-    background: #fff5f5;
-    border: 1.5px solid #fecaca;
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 16px;
-    font-size: 12px; color: #dc2626;
+    background: #fff5f5; border: 1.5px solid #fecaca;
+    border-radius: 10px; padding: 10px 14px;
+    margin-bottom: 16px; font-size: 12px; color: #dc2626;
   }
 
   .btn-primary {
-    width: 100%;
-    background: #111110; color: #ffffff;
-    border: none; border-radius: 10px;
-    padding: 13px 20px;
-    font-family: 'Sora', sans-serif;
-    font-size: 14px; font-weight: 600;
-    letter-spacing: -0.01em;
-    cursor: pointer;
-    transition: all 0.2s;
+    width: 100%; background: #111110; color: #ffffff;
+    border: none; border-radius: 10px; padding: 13px 20px;
+    font-family: 'Sora', sans-serif; font-size: 14px; font-weight: 600;
+    letter-spacing: -0.01em; cursor: pointer; transition: all 0.2s;
     display: flex; align-items: center; justify-content: center; gap: 8px;
   }
   .btn-primary:hover:not(:disabled) {
-    background: #1e1d1b;
-    transform: translateY(-1px);
+    background: #1e1d1b; transform: translateY(-1px);
     box-shadow: 0 6px 20px rgba(0,0,0,0.18);
   }
   .btn-primary:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
-  .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .form-footer {
-    text-align: center;
-    margin-top: 20px;
-    font-size: 12px; color: #8a8980;
-  }
+  .form-footer { text-align: center; margin-top: 20px; font-size: 12px; color: #8a8980; }
   .form-footer a {
-    color: #111110; font-weight: 600;
-    text-decoration: none;
-    border-bottom: 1px solid #e4e3de;
-    padding-bottom: 1px;
-    transition: border-color 0.2s;
-    cursor: pointer;
+    color: #111110; font-weight: 600; text-decoration: none;
+    border-bottom: 1px solid #e4e3de; padding-bottom: 1px;
+    transition: border-color 0.2s; cursor: pointer;
   }
   .form-footer a:hover { border-color: #111110; }
 
   .trust-badge {
     display: flex; align-items: center; justify-content: center;
-    gap: 6px; margin-top: 16px;
-    font-size: 11px; color: #c8c7c0;
+    gap: 6px; margin-top: 16px; font-size: 11px; color: #c8c7c0;
   }
-  .trust-dot {
-    width: 4px; height: 4px;
-    border-radius: 50%; background: #e4e3de;
-  }
+  .trust-dot { width: 4px; height: 4px; border-radius: 50%; background: #e4e3de; }
 
   .spinner {
     width: 16px; height: 16px;
     border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: #ffffff;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
+    border-top-color: #ffffff; border-radius: 50%;
+    animation: spin 0.7s linear infinite; flex-shrink: 0;
   }
 
-  @keyframes fadeSlideUp {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes fadeSlideDown {
-    from { opacity: 0; transform: translateY(-12px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+  @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeSlideDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   @media (max-width: 768px) {
     .register-root { grid-template-columns: 1fr; }
